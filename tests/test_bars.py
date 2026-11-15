@@ -45,3 +45,25 @@ def test_volume_sums_trades_in_minute():
 def test_no_forward_fill():
     books = [(_at(9, 15, 30), "LO"), (_at(9, 18, 30), "LO")]
     assert len(to_minute_bars(books, [])) == 2
+
+
+def test_refs_exclude_out_of_band_snapshot():
+    from datetime import date
+
+    from liquidity_lens.data.normalize import MarketRef
+
+    refs = {"SSI": MarketRef("SSI", "HOSE", date(2026, 7, 29), 45400, 42100, 45300)}  # asks above ceiling
+    books = [(_at(9, 15, 30), "LO")]
+    assert to_minute_bars(books, [], refs=refs) == []
+    assert len(to_minute_bars(books, [])) == 1
+
+
+def test_tick_for_flags_off_tick_is_not_fatal_but_used():
+    seen = []
+
+    def tick_for(symbol, price):
+        seen.append((symbol, price))
+        return 50
+
+    bars = to_minute_bars([(_at(9, 15, 30), "LO")], [], tick_for=tick_for)
+    assert seen and bars[0].spread_ticks == 1.0

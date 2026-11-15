@@ -3,10 +3,10 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Sequence
+from typing import Callable, Mapping, Sequence
 
 from liquidity_lens.config import CONTINUOUS_FLAGS
-from liquidity_lens.data.normalize import TradeTick
+from liquidity_lens.data.normalize import MarketRef, TradeTick
 from liquidity_lens.data.quality import is_usable, quality_flags
 from liquidity_lens.finance import metrics
 from liquidity_lens.finance.orderbook import BookSnapshot
@@ -37,27 +37,39 @@ def to_minute_bars(
     trades: Sequence[TradeTick],
     tick: int | None = None,
     continuous_flags: frozenset[str] = CONTINUOUS_FLAGS,
+    refs: Mapping[str, MarketRef] | None = None,
+    tick_for: Callable[[str, int], int] | None = None,
 ) -> list[MinuteBar]:
     """Last usable continuous-session snapshot per (symbol, minute); no forward fill."""
-    last: dict[tuple[str, datetime], BookSnapshot] = {}
+    def tick_of(book: BookSnapshot) -> int | None:
+        first = (book.bids or book.asks or (None,))[0]
+        if tick_for is not None and first is not None:
+            return tick_for(book.symbol, first.price)
+        return tick
+
+    last: dict[tuple[str, datetime], tuple[BookSnapshot, int | None]] = {}
     for book, flag in sorted(books, key=lambda p: p[0].ts):
-        if flag not in continuous_flags or not is_usable(quality_flags(book, tick=tick)):
+        if flag not in continuous_flags:
             continue
-        last[(book.symbol, _minute(book.ts))] = book
+        book_tick = tick_of(book)
+        ref = refs.get(book.symbol) if refs else None
+        if not is_usable(quality_flags(book, ref=ref, tick=book_tick)):
+            continue
+        last[(book.symbol, _minute(book.ts))] = (book, book_tick)
 
     volume: dict[tuple[str, datetime], int] = defaultdict(int)
     for t in trades:
         volume[(t.symbol, _minute(t.ts))] += t.qty
 
     bars = []
-    for (symbol, minute), b in sorted(last.items(), key=lambda kv: (kv[0][1], kv[0][0])):
+    for (symbol, minute), (b, b_tick) in sorted(last.items(), key=lambda kv: (kv[0][1], kv[0][0])):
         bars.append(
             MinuteBar(
                 symbol=symbol,
                 minute=minute,
                 spread_abs=metrics.spread_abs(b),
                 spread_bps=metrics.spread_bps(b),
-                spread_ticks=metrics.spread_ticks(b, tick) if tick else None,
+                spread_ticks=metrics.spread_ticks(b, b_tick) if b_tick else None,
                 obi1=metrics.obi(b, 1),
                 obi3=metrics.obi(b, 3),
                 depth_bid3=metrics.depth_qty(b, "bid", 3),
