@@ -47,16 +47,26 @@ class Pipeline:
             "raw_message",
             [{"received_at": _iso(received_at), "kind": kind, "payload": json.dumps(payload, ensure_ascii=False)}],
         )
-        if kind == "quote":
-            self._quote(payload, received_at)
-        elif kind == "trade":
-            self._trade(payload, received_at)
-        elif kind == "market_ref":
-            self._market_ref(payload)
-        elif kind == "market_flag":
-            self._market_flag(payload)
-        else:
+        handlers = {
+            "quote": self._quote,
+            "trade": self._trade,
+            "market_ref": lambda payload, _received_at: self._market_ref(payload),
+            "market_flag": lambda payload, _received_at: self._market_flag(payload),
+        }
+        if kind not in handlers:
             raise ValueError(f"unknown kind: {kind!r}")
+        try:
+            handlers[kind](payload, received_at)
+        except Exception as exc:  # malformed message: log and keep the collector alive
+            insert_many(
+                self.conn,
+                "collector_events",
+                [{
+                    "ts": _iso(received_at),
+                    "event": "PARSE_ERROR",
+                    "detail": json.dumps({"kind": kind, "error": f"{type(exc).__name__}: {exc}"}, ensure_ascii=False),
+                }],
+            )
 
     def _quote(self, payload: dict, received_at: datetime) -> None:
         book = parse_quote(payload, received_at)

@@ -63,3 +63,19 @@ def test_replay_counts_lines(tmp_path):
     assert _count(conn, "raw_message") == 4
     assert conn.execute("SELECT session_flag FROM book_snapshot").fetchone()[0] == "ATO"
     assert json.loads(conn.execute("SELECT payload FROM raw_message").fetchone()[0])
+
+
+def test_parse_error_logged_and_processing_continues(tmp_path):
+    conn = init_db(tmp_path / "t.db")
+    p = Pipeline(conn)
+    bad = copy.deepcopy(QUOTE)
+    bad["bids"][0][0] = "abc"
+    p.handle("quote", bad, RECEIVED)  # must not raise
+    assert _count(conn, "raw_message") == 1
+    assert _count(conn, "book_snapshot") == 0
+    rows = conn.execute("SELECT event, detail FROM collector_events").fetchall()
+    assert len(rows) == 1 and rows[0]["event"] == "PARSE_ERROR"
+    assert "quote" in rows[0]["detail"]
+    p.handle("quote", QUOTE, RECEIVED)  # later messages still processed
+    assert _count(conn, "book_snapshot") == 1
+
