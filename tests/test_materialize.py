@@ -79,7 +79,7 @@ def test_data_quality_report(tmp_path):
     from liquidity_lens.data.report import data_quality_report
 
     conn = _db_with_series(tmp_path)
-    p = Pipeline(conn)
+    p = Pipeline(conn, today=DAY)
     p.handle("quote", {"s": "SSI", "t": "2026/07/29 09:50:00", "bids": [["x", "1"]], "asks": []}, _recv(9, 50, 0))
     p.handle("quote", _quote(9, 5, 10, 777), _recv(9, 5, 10))  # board flag is already LO, so this counts as LO
     conn.execute("INSERT INTO book_snapshot (symbol, ts, received_at, n_bids, n_asks, session_flag, flags) "

@@ -1,6 +1,6 @@
 import copy
 import json
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from liquidity_lens.collector.pipeline import Pipeline
@@ -88,6 +88,23 @@ def test_new_pipeline_restores_state_from_db(tmp_path):
     first.handle("market_ref", MARKET_REF, RECEIVED)
     first.handle("market_flag", MARKET_FLAG, RECEIVED)
     conn2 = init_db(path)
-    second = Pipeline(conn2)
+    second = Pipeline(conn2, today=date(2026, 7, 29))
     second.handle("quote", QUOTE, RECEIVED)
     assert conn2.execute("SELECT session_flag FROM book_snapshot").fetchone()[0] == "ATO"
+
+
+def test_restore_skips_data_from_previous_day(tmp_path):
+    path = tmp_path / "t.db"
+    conn = init_db(path)
+    first = Pipeline(conn)
+    first.handle("market_ref", MARKET_REF, RECEIVED)
+    first.handle("market_flag", MARKET_FLAG, RECEIVED)
+    second = Pipeline(init_db(path), today=date(2026, 7, 30))  # the stored data is from "yesterday"
+    assert second._refs == {} and second._board_flag == {}
+
+
+def test_restore_defaults_to_today_in_vn_timezone(tmp_path):
+    conn = init_db(tmp_path / "t.db")
+    first = Pipeline(conn)
+    first.handle("market_ref", MARKET_REF, RECEIVED)  # 2026-07-29 is long past
+    assert Pipeline(conn)._refs == {}

@@ -5,6 +5,7 @@ import sqlite3
 from datetime import date, datetime
 from typing import Callable, Literal
 
+from liquidity_lens import config
 from liquidity_lens.data.normalize import (
     MarketRef,
     parse_market_ref,
@@ -34,26 +35,28 @@ class Pipeline:
         self,
         conn: sqlite3.Connection,
         tick_for: Callable[[str, int], int] | None = None,
+        today: date | None = None,
     ) -> None:
         self.conn = conn
         self.tick_for = tick_for
         self._refs: dict[str, MarketRef] = {}
         self._board_flag: dict[str, str] = {}
         self._last_sig: dict[str, tuple] = {}
-        self._restore_state()
+        self._restore_state(today or datetime.now(config.TZ).date())
 
-    def _restore_state(self) -> None:
-        """Reload the latest trading day's market_ref and each board's latest session flag from SQLite."""
-        row = self.conn.execute("SELECT MAX(trading_date) FROM market_ref").fetchone()
-        if row is None or row[0] is None:
-            return
-        day = row[0]
+    def _restore_state(self, today: date) -> None:
+        """Reload today's market_ref and each board's latest session flag (Asia/Ho_Chi_Minh date).
+
+        Data from earlier days is never restored: yesterday's price band or session flag must not
+        be applied to today's snapshots.
+        """
+        day = today.isoformat()
         for r in self.conn.execute(
             "SELECT symbol, board, ceiling, floor, ref FROM market_ref WHERE trading_date = ?", (day,)
         ):
-            self._refs[r["symbol"]] = MarketRef(
-                r["symbol"], r["board"], date.fromisoformat(day), r["ceiling"], r["floor"], r["ref"]
-            )
+            self._refs[r["symbol"]] = MarketRef(r["symbol"], r["board"], today, r["ceiling"], r["floor"], r["ref"])
+        if not self._refs:
+            return
         for r in self.conn.execute(
             "SELECT board, flag FROM session_flag WHERE ts >= ? ORDER BY ts, rowid", (day,)
         ):

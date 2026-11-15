@@ -33,6 +33,7 @@ Quy ước: **[Xác nhận]** = có trong tài liệu SSI đã đọc; **[Giả 
 5. Cú pháp subscribe `quote.SYM` có/không `@tick`; `LIST_SUBSCRIPTION` cho biết scope.
 6. Cờ phiên thực tế (`LO` có phải phiên khớp liên tục?), hành vi sổ lệnh quanh ATO, nghỉ trưa, ATC.
    - **[Kiểm tra]** Khung giờ dự phòng `config.CONTINUOUS_WINDOWS` = 09:15-11:30 và 13:00-14:30 (mọi sàn), chỉ dùng khi snapshot chưa có `session_flag`. Chưa có trong tài liệu SSI đã đọc; xác minh theo từng sàn bằng dữ liệu thật.
+   - **[Kiểm tra]** Khung giờ dự phòng `CONTINUOUS_WINDOWS` chỉ đúng cho mã HOSE; giữ watchlist chỉ gồm mã HOSE cho đến khi xác minh các sàn khác.
 7. Chiều heartbeat (PONG echo trường `time` của PING?).
 8. Bước giá (tick size) theo mức giá và sàn: lấy từ quy định sàn, không hardcode khi chưa xác minh.
 
