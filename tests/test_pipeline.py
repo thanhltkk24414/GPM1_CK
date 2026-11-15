@@ -79,3 +79,15 @@ def test_parse_error_logged_and_processing_continues(tmp_path):
     p.handle("quote", QUOTE, RECEIVED)  # later messages still processed
     assert _count(conn, "book_snapshot") == 1
 
+
+
+def test_new_pipeline_restores_state_from_db(tmp_path):
+    path = tmp_path / "t.db"
+    conn = init_db(path)
+    first = Pipeline(conn)
+    first.handle("market_ref", MARKET_REF, RECEIVED)
+    first.handle("market_flag", MARKET_FLAG, RECEIVED)
+    conn2 = init_db(path)
+    second = Pipeline(conn2)
+    second.handle("quote", QUOTE, RECEIVED)
+    assert conn2.execute("SELECT session_flag FROM book_snapshot").fetchone()[0] == "ATO"

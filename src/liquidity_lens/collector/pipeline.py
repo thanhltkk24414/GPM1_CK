@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime
+from datetime import date, datetime
 from typing import Callable, Literal
 
 from liquidity_lens.data.normalize import (
@@ -40,6 +40,24 @@ class Pipeline:
         self._refs: dict[str, MarketRef] = {}
         self._board_flag: dict[str, str] = {}
         self._last_sig: dict[str, tuple] = {}
+        self._restore_state()
+
+    def _restore_state(self) -> None:
+        """Reload the latest trading day's market_ref and each board's latest session flag from SQLite."""
+        row = self.conn.execute("SELECT MAX(trading_date) FROM market_ref").fetchone()
+        if row is None or row[0] is None:
+            return
+        day = row[0]
+        for r in self.conn.execute(
+            "SELECT symbol, board, ceiling, floor, ref FROM market_ref WHERE trading_date = ?", (day,)
+        ):
+            self._refs[r["symbol"]] = MarketRef(
+                r["symbol"], r["board"], date.fromisoformat(day), r["ceiling"], r["floor"], r["ref"]
+            )
+        for r in self.conn.execute(
+            "SELECT board, flag FROM session_flag WHERE ts >= ? ORDER BY ts, rowid", (day,)
+        ):
+            self._board_flag[r["board"]] = r["flag"]  # later rows overwrite earlier ones
 
     def handle(self, kind: Kind, payload: dict, received_at: datetime) -> None:
         insert_many(
