@@ -73,3 +73,32 @@ def test_none_session_flag_uses_fallback_windows(tmp_path):
 def test_materialize_ignores_other_days(tmp_path):
     conn = _db_with_series(tmp_path)
     assert materialize_metrics(conn, date(2026, 7, 30)) == (0, 0)
+
+
+def test_data_quality_report(tmp_path):
+    from liquidity_lens.data.report import data_quality_report
+
+    conn = _db_with_series(tmp_path)
+    p = Pipeline(conn)
+    p.handle("quote", {"s": "SSI", "t": "2026/07/29 09:50:00", "bids": [["x", "1"]], "asks": []}, _recv(9, 50, 0))
+    p.handle("quote", _quote(9, 5, 10, 777), _recv(9, 5, 10))  # board flag is already LO, so this counts as LO
+    conn.execute("INSERT INTO book_snapshot (symbol, ts, received_at, n_bids, n_asks, session_flag, flags) "
+                 "VALUES ('SSI', '2026-07-29T09:06:00+07:00', '2026-07-29T09:06:00+07:00', 0, 0, NULL, '')")
+    conn.commit()
+    materialize_metrics(conn, DAY, window=10, min_periods=5)
+    rep = data_quality_report(conn, DAY, window=10, min_periods=5)
+    assert rep["snapshots_by_session_flag"]["LO"] == 13
+    assert rep["snapshots_by_session_flag"][None] == 1
+    assert rep["parse_errors"] == 1
+    z = rep["zero_std_ratio"]["SSI"]
+    assert z["spread_bps"] == 1.0          # constant spread: every evaluated window has std 0
+    assert z["obi3"] == 0.0                # obi3 varies
+    assert z["volume"] == 1.0              # no trades: volume is always 0
+
+
+def test_data_quality_report_empty_day(tmp_path):
+    from liquidity_lens.data.report import data_quality_report
+
+    conn = init_db(tmp_path / "t.db")
+    rep = data_quality_report(conn, DAY)
+    assert rep == {"snapshots_by_session_flag": {}, "parse_errors": 0, "zero_std_ratio": {}}
