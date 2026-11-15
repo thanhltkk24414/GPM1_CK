@@ -1,0 +1,117 @@
+from __future__ import annotations
+
+import json
+import sqlite3
+from datetime import datetime
+from typing import Callable, Literal
+
+from liquidity_lens.data.normalize import (
+    MarketRef,
+    parse_market_ref,
+    parse_quote,
+    parse_session_flag,
+    parse_trade,
+)
+from liquidity_lens.data.quality import quality_flags
+from liquidity_lens.data.store import insert_many
+from liquidity_lens.finance.orderbook import BookSnapshot
+
+Kind = Literal["quote", "trade", "market_ref", "market_flag"]
+
+
+def _iso(ts: datetime) -> str:
+    return ts.isoformat(timespec="milliseconds")
+
+
+def _signature(book: BookSnapshot) -> tuple:
+    return (book.bids, book.asks)
+
+
+class Pipeline:
+    """Raw message -> normalized rows in SQLite. Pure orchestration, no network."""
+
+    def __init__(
+        self,
+        conn: sqlite3.Connection,
+        tick_for: Callable[[str, int], int] | None = None,
+    ) -> None:
+        self.conn = conn
+        self.tick_for = tick_for
+        self._refs: dict[str, MarketRef] = {}
+        self._board_flag: dict[str, str] = {}
+        self._last_sig: dict[str, tuple] = {}
+
+    def handle(self, kind: Kind, payload: dict, received_at: datetime) -> None:
+        insert_many(
+            self.conn,
+            "raw_message",
+            [{"received_at": _iso(received_at), "kind": kind, "payload": json.dumps(payload, ensure_ascii=False)}],
+        )
+        if kind == "quote":
+            self._quote(payload, received_at)
+        elif kind == "trade":
+            self._trade(payload, received_at)
+        elif kind == "market_ref":
+            self._market_ref(payload)
+        elif kind == "market_flag":
+            self._market_flag(payload)
+        else:
+            raise ValueError(f"unknown kind: {kind!r}")
+
+    def _quote(self, payload: dict, received_at: datetime) -> None:
+        book = parse_quote(payload, received_at)
+        sig = _signature(book)
+        if self._last_sig.get(book.symbol) == sig:
+            return  # identical to the previous snapshot of this symbol
+        self._last_sig[book.symbol] = sig
+
+        ref = self._refs.get(book.symbol)
+        first = (book.bids or book.asks or (None,))[0]
+        tick = self.tick_for(book.symbol, first.price) if self.tick_for and first else None
+        flags = quality_flags(book, ref=ref, tick=tick)
+        session_flag = self._board_flag.get(ref.board) if ref else None
+
+        row: dict = {
+            "symbol": book.symbol,
+            "ts": _iso(book.ts),
+            "received_at": _iso(received_at),
+            "n_bids": len(book.bids),
+            "n_asks": len(book.asks),
+            "session_flag": session_flag,
+            "flags": ",".join(sorted(flags)),
+        }
+        for i in range(3):
+            bid = book.bids[i] if i < len(book.bids) else None
+            ask = book.asks[i] if i < len(book.asks) else None
+            row[f"bid_p{i + 1}"] = bid.price if bid else None
+            row[f"bid_q{i + 1}"] = bid.qty if bid else None
+            row[f"ask_p{i + 1}"] = ask.price if ask else None
+            row[f"ask_q{i + 1}"] = ask.qty if ask else None
+        insert_many(self.conn, "book_snapshot", [row])
+
+    def _trade(self, payload: dict, received_at: datetime) -> None:
+        t = parse_trade(payload, received_at)
+        insert_many(
+            self.conn,
+            "trade_tick",
+            [{
+                "symbol": t.symbol, "ts": _iso(t.ts), "price": t.price, "qty": t.qty,
+                "side": t.side, "total_vol": t.total_vol, "received_at": _iso(t.received_at),
+            }],
+        )
+
+    def _market_ref(self, payload: dict) -> None:
+        r = parse_market_ref(payload)
+        self._refs[r.symbol] = r
+        # market_ref has a (trading_date, symbol) primary key; a repeated message replaces the row.
+        with self.conn:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO market_ref (trading_date, symbol, board, ceiling, floor, ref) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (r.trading_date.isoformat(), r.symbol, r.board, r.ceiling, r.floor, r.ref),
+            )
+
+    def _market_flag(self, payload: dict) -> None:
+        f = parse_session_flag(payload)
+        self._board_flag[f.board] = f.flag
+        insert_many(self.conn, "session_flag", [{"board": f.board, "ts": _iso(f.ts), "flag": f.flag}])
