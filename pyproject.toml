@@ -7,7 +7,7 @@ name = "liquidity-lens"
 version = "0.1.0"
 description = "Real-time liquidity and order book imbalance monitor for Vietnamese equities (academic project)"
 requires-python = ">=3.10"
-dependencies = ["tzdata"]
+dependencies = ["tzdata", "websockets>=14"]
 
 [project.optional-dependencies]
 dev = ["pytest"]
