@@ -19,3 +19,6 @@ CONTINUOUS_WINDOWS = (
     (time(9, 15), time(11, 30)),
     (time(13, 0), time(14, 30)),
 )
+
+# Default watchlist for the collector. [Kiểm tra] HOSE symbols only: the fallback session windows are HOSE's.
+DEFAULT_WATCHLIST = ("VIC", "HPG", "FPT")
