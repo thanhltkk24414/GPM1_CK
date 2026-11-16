@@ -17,6 +17,9 @@ Quy ước: **[Xác nhận]** = có trong tài liệu SSI đã đọc; **[Giả 
 | `POST /api/v3/auth/refresh` body `refreshToken` | [Xác nhận] |
 | `expiresAt`: trang auth-token ghi mili-giây, ví dụ lại 10 chữ số (giống giây) | [Kiểm tra] nhận biết theo số chữ số |
 | WebSocket `wss://stream.ssi.com.vn`, kênh `DATA`, thông điệp `{"method":"SUBSCRIBE","channel":"DATA","topics":[...]}` | [Xác nhận] |
+| WebSocket endpoint `wss://stream.ssi.com.vn/ws/v3`; token gắn bằng header handshake `Authorization: Bearer <accessToken>`; không cần `client_id`, không OTP | [Xác nhận từ mã nguồn SDK, chưa thử thật] |
+| Topic `market.flag` cho cờ phiên mọi sàn; `LIST_SUBSCRIPTION` = `{"method":"LIST_SUBSCRIPTION"}` | [Xác nhận từ mã nguồn SDK, chưa thử thật] |
+| Mỗi `apiKey` chỉ có 1 phiên WebSocket | [Xác nhận từ mã nguồn SDK, chưa thử thật] |
 | Topic: `trade`, `quote`, `room`, `put`, `oddlot`, `market`, `trade.index`, `indexsummary`; nhiều mã nối bằng `-` | [Xác nhận] |
 | `quote`: `s`, `t` (`YYYY/MM/DD HH:mm:ss`), `bids`, `asks` = danh sách `[giá, khối lượng]` (chuỗi). Mẫu có 5 mức | [Xác nhận] |
 | `trade`: `s`,`t`,`p` (đồng),`q`,`a`,`si` (B/S),`o`,`h`,`l`,`v` (tổng KL cộng dồn) | [Xác nhận] |
@@ -26,7 +29,7 @@ Quy ước: **[Xác nhận]** = có trong tài liệu SSI đã đọc; **[Giả 
 | Header giới hạn tần suất `X-RATELIMIT-LIMIT/REMAINING/RESET`; số cụ thể | [Kiểm tra] |
 
 ### Cần kiểm tra bằng dữ liệu thật (smoke test ngày có key)
-1. **Cách gắn token khi kết nối WebSocket** và vai trò `client_id` (không có trong tài liệu đã đọc; xem mục Thực hành/SDK của SSI).
+1. **Cách gắn token khi kết nối WebSocket**: đã có đáp án từ mã nguồn SDK ([Xác nhận từ mã nguồn SDK, chưa thử thật], xem bảng trên); cần xác minh bằng smoke test, gồm cả `client_id` (SDK nói không cần).
 2. Số mức giá thực nhận trong `quote`, thứ tự (tốt nhất trước?), toàn bộ snapshot hay chỉ phần thay đổi (tài liệu báo bản sau sẽ chỉ gửi thay đổi).
 3. Đơn vị giá: `trade.p` ghi "đồng", còn `quote`/`put`/`market` trong mẫu là 45.45, 48.50 (nghìn đồng?). Cấu hình `QUOTE_PRICE_MULTIPLIER = 1000` [Giả định].
 4. Múi giờ của `t` (giả định giờ Việt Nam), tần suất cập nhật (độ phân giải giây).
@@ -35,6 +38,7 @@ Quy ước: **[Xác nhận]** = có trong tài liệu SSI đã đọc; **[Giả 
    - **[Kiểm tra]** Khung giờ dự phòng `config.CONTINUOUS_WINDOWS` = 09:15-11:30 và 13:00-14:30 (mọi sàn), chỉ dùng khi snapshot chưa có `session_flag`. Chưa có trong tài liệu SSI đã đọc; xác minh theo từng sàn bằng dữ liệu thật.
    - **[Kiểm tra]** Khung giờ dự phòng `CONTINUOUS_WINDOWS` chỉ đúng cho mã HOSE; giữ watchlist chỉ gồm mã HOSE cho đến khi xác minh các sàn khác.
 7. Chiều heartbeat (PONG echo trường `time` của PING?).
+9. Cấu trúc bao ngoài (envelope) của frame dữ liệu; hành vi khi mở phiên thứ hai cùng `apiKey`; payload `market.flag`.
 8. Bước giá (tick size) theo mức giá và sàn: lấy từ quy định sàn, không hardcode khi chưa xác minh.
 
 ## 2. Công thức (đơn vị nội bộ: VND, số nguyên)
@@ -70,6 +74,8 @@ Quy ước: **[Xác nhận]** = có trong tài liệu SSI đã đọc; **[Giả 
 | `collector_events` | id, ts, event, detail |
 
 ## 5. Kiến trúc
+
+**Quy tắc token:** chỉ collector giữ token và gọi auth (mỗi `apiKey` chỉ có 1 phiên WebSocket); dashboard không bao giờ gọi auth, chỉ đọc SQLite. Token chỉ nằm trong bộ nhớ.
 
 Hai tiến trình: **collector** (WebSocket → raw → chuẩn hóa → SQLite, tự kết nối lại, chạy suốt phiên) và **dashboard Streamlit** (chỉ đọc SQLite). Không nhúng WebSocket vào Streamlit.
 

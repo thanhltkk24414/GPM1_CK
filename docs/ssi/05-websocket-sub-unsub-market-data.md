@@ -315,3 +315,10 @@ Sample output:
   "t": "2026/07/29 09:00:00",
   "f": "ATO"
 }
+
+## Ghi chú của dự án (không thuộc tài liệu SSI)
+
+- [Xác nhận từ mã nguồn SDK, chưa thử thật] Topic `market.flag` trả cờ phiên của mọi sàn. Ví dụ subscribe: `{"method":"SUBSCRIBE","channel":"DATA","topics":["quote.SSI","trade.SSI","market.SSI","market.flag"]}`.
+- **[Kiểm tra]** Payload của `market.flag` có đúng dạng `{b,t,f}` như mẫu "Market flag" ở trên không.
+- **[Kiểm tra]** Số mức giá thực nhận trong `quote`, thứ tự mức, snapshot đầy đủ hay chỉ phần thay đổi.
+- **[Kiểm tra]** Đơn vị giá của `quote`/`market` (đồng hay nghìn đồng) so với mẫu 45.45.

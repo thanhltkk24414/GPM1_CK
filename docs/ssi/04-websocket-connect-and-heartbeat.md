@@ -101,6 +101,18 @@ Response mẫu (tóm tắt scope):
 
 ## Ghi chú của dự án (không thuộc tài liệu SSI)
 
-- **[Kiểm tra]** Cách gắn token khi kết nối `wss://stream.ssi.com.vn` (header, query hay thông điệp đầu tiên) và vai trò `client_id`: tài liệu đã có không nói rõ.
-- **[Kiểm tra]** Cú pháp `quote`: trang Sub/Unsub cho `quote.[...]@[tick/1m/5m]`, trang này chỉ ghi `quote.<symbol>@tick`.
+Nguồn: mã nguồn ssi-sdk 3.3.2 (chỉ đọc, không cài/import). Mọi mục gắn nhãn [Xác nhận từ mã nguồn SDK, chưa thử thật] chưa được thử với server thật; smoke test (Task 10) sẽ xác minh.
+
+- [Xác nhận từ mã nguồn SDK, chưa thử thật] Endpoint kết nối là `wss://stream.ssi.com.vn/ws/v3` (trang trên ghi gốc `wss://stream.ssi.com.vn`).
+- [Xác nhận từ mã nguồn SDK, chưa thử thật] Token gắn bằng header handshake `Authorization: Bearer <accessToken>`. Không cần `client_id`, không dùng OTP.
+- [Xác nhận từ mã nguồn SDK, chưa thử thật] Mỗi `apiKey` chỉ có **một** phiên WebSocket. Hệ quả: **chỉ collector giữ token và mở kết nối; dashboard không gọi auth** (dashboard chỉ đọc SQLite).
+- Heartbeat: server gửi `PING`, client trả `PONG` có trường `time`. Mọi frame `HEARTBEAT` (cả hai chiều) được ghi vào `collector_events` để đối chiếu.
+- [Xác nhận từ mã nguồn SDK, chưa thử thật] `LIST_SUBSCRIPTION`: `{"method":"LIST_SUBSCRIPTION"}`.
 - Đồ án chỉ subscribe kênh `DATA`, không dùng kênh `TRADING`.
+
+### Còn [Kiểm tra]
+- **[Kiểm tra]** Header Bearer có được server chấp nhận khi handshake không; mã lỗi/đóng kết nối khi bị từ chối.
+- **[Kiểm tra]** `PONG` có phải echo đúng `time` của `PING` không, và định dạng `time` thực tế.
+- **[Kiểm tra]** Hành vi khi mở phiên thứ hai bằng cùng `apiKey` (đẩy phiên cũ hay từ chối).
+- **[Kiểm tra]** Cú pháp `quote`: có/không `@tick`.
+- **[Kiểm tra]** Cấu trúc bao ngoài (envelope) của mỗi frame dữ liệu: tài liệu chỉ mô tả phần `data`.
