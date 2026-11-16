@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 from liquidity_lens import config
+from liquidity_lens.envfile import load_env
 from liquidity_lens.collector.pipeline import Pipeline
 from liquidity_lens.collector.router import FrameRouter
 from liquidity_lens.data.store import init_db
@@ -147,6 +148,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--ws-url", default=DEFAULT_URL, help="override only for local fake-server tests")
     args = ap.parse_args(argv)
 
+    load_env()  # project-root .env; variables already set in the shell win
     key, secret = os.environ.get("SSI_API_KEY", ""), os.environ.get("SSI_API_SECRET", "")
     missing = [n for n, v in (("SSI_API_KEY", key), ("SSI_API_SECRET", secret)) if not v]
     if missing:

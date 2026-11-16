@@ -7,7 +7,7 @@ Step 2: WebSocket wss://stream.ssi.com.vn/ws/v3, header "Authorization: Bearer <
         to data/smoke/ (masked), print statistics. Source of these WebSocket details: ssi-sdk 3.3.2, NOT yet
         verified against the real server (docs/ssi/10-python-sdk-notes.md).
 
-Credentials come from the environment (SSI_API_KEY, SSI_API_SECRET). They, the access token and the refresh
+Credentials come from the environment or the project-root .env file (SSI_API_KEY, SSI_API_SECRET). They, the access token and the refresh
 token are never printed or written to disk. Read-only: never touches the Trading API, order.*, fco.* or the
 TRADING channel. If the server refuses for OTP/permission reasons the script STOPS and reports; it never tries OTP.
 Only one session per apiKey is allowed: do not run this while the collector is running.
@@ -28,6 +28,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from liquidity_lens import config
+from liquidity_lens.envfile import load_env
 from liquidity_lens.ssi.frames import FrameStats
 from liquidity_lens.ssi.redact import mask
 
@@ -205,6 +206,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--skip-ws", action="store_true", help="skip the WebSocket step")
     args = ap.parse_args(argv)
 
+    load_env()  # project-root .env; variables already set in the shell win
     key, secret = os.environ.get("SSI_API_KEY", ""), os.environ.get("SSI_API_SECRET", "")
     missing = [n for n, v in (("SSI_API_KEY", key), ("SSI_API_SECRET", secret)) if not v]
     if missing:
