@@ -58,3 +58,6 @@ Phân trang: `pageSize`, `pageIndex`, `pagesCount` (tổng số trang), `itemsCo
 ## Ghi chú của dự án (không thuộc tài liệu SSI)
 
 - Dữ liệu theo **ngày**, không có sổ lệnh. Dùng để đối chiếu `totalMatch` với tổng khối lượng thu từ WebSocket (Task 15).
+- **[Xác nhận bằng thực nghiệm 2026-11-16]** Phản hồi 200 có thêm `code` (số nguyên 200) và `msg` (rỗng) ngoài tài liệu; 25 trường mỗi bản ghi đúng tài liệu; các bản ghi **không sắp xếp theo ngày** (cần tự sắp xếp); `close` tính bằng đồng (ví dụ 20200).
+- Giới hạn tần suất: header `X-RateLimit-Limit` = 20, `X-RateLimit-Remaining` giảm 1 mỗi request; server không gửi `Reset` nên chưa biết chu kỳ. Chỉ gọi để đối chiếu cuối ngày, không gọi từ dashboard.
+- Tài liệu SDK ghi dữ liệu của ngày hôm nay có thể được cache phía server tới 1 giờ.
