@@ -118,3 +118,9 @@ Nguồn: tài liệu và mã nguồn `ssi-sdk` 3.3.2 (đọc ngày 2026-11-16), 
 - **[Kiểm tra]** Hành vi khi mở phiên thứ hai bằng cùng `apiKey` (đẩy phiên cũ hay từ chối).
 - **[Kiểm tra]** Cấu trúc bao ngoài (envelope) của mỗi frame dữ liệu: tài liệu chỉ mô tả phần `data`.
 - Quy tắc: **chỉ collector giữ token và mở WebSocket; dashboard không bao giờ gọi auth** (chỉ đọc SQLite).
+
+### Kết quả smoke test WebSocket thật (2026-11-16 17:34, thị trường đã đóng cửa)
+- **[Xác nhận bằng thực nghiệm 2026-11-16]** `wss://stream.ssi.com.vn/ws/v3` chấp nhận header `Authorization: Bearer <accessToken>` khi handshake, không cần `client_id`, không OTP.
+- **[Xác nhận bằng thực nghiệm 2026-11-16]** Server có frame xác nhận subscribe: `{"method":"SUBSCRIBE","channel":"DATA","status":"ok","message":"Subscribed to 10 topic(s)"}` (không có trong tài liệu SSI).
+- **[Xác nhận bằng thực nghiệm 2026-11-16]** Phản hồi `LIST_SUBSCRIPTION` là `{"trading":"","data":"<các topic đã subscribe, nối bằng ;>"}`: scope trading rỗng, scope data liệt kê đúng 10 topic vừa gửi (`quote|trade|market` cho VIC, HPG, FPT và `market.flag`).
+- Trong 60 giây (ngoài giờ giao dịch) **không có frame HEARTBEAT nào** từ server và kết nối vẫn mở. Chu kỳ PING và chiều heartbeat vẫn **[Kiểm tra]**. Chưa có frame `quote`/`trade`/`market` nào (đã đóng cửa): cấu trúc bao ngoài, số mức giá, đơn vị giá, payload `market.flag` vẫn **[Kiểm tra]**, cần chạy lại trong giờ giao dịch.
