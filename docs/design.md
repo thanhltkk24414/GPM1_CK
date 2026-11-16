@@ -39,9 +39,9 @@ Quy ước: **[Xác nhận]** = có trong tài liệu SSI đã đọc; **[Giả 
    - **[Kiểm tra]** Khung giờ dự phòng `config.CONTINUOUS_WINDOWS` = 09:15-11:30 và 13:00-14:30 (mọi sàn), chỉ dùng khi snapshot chưa có `session_flag`. Chưa có trong tài liệu SSI đã đọc; xác minh theo từng sàn bằng dữ liệu thật.
    - **[Kiểm tra]** Khung giờ dự phòng `CONTINUOUS_WINDOWS` chỉ đúng cho mã HOSE; giữ watchlist chỉ gồm mã HOSE cho đến khi xác minh các sàn khác.
 7. Chiều heartbeat: `docs/ssi/04` ghi server gửi `PING`, client trả `PONG` có `time`; SDK lại tự gửi `{"method":"PING_PONG","channel":"HEARTBEAT"}` từ client. Chưa biết cái nào đúng; ghi mọi frame `HEARTBEAT` thật vào `collector_events`.
+8. Bước giá (tick size) theo mức giá và sàn: lấy từ quy định sàn, không hardcode khi chưa xác minh.
 9. **Quy tắc phiên**: chỉ collector giữ token và kết nối WebSocket; dashboard Streamlit không bao giờ gọi `auth`; không chạy smoke test hay xin token thủ công khi collector đang chạy.
 10. Đơn vị giá thông điệp `quote`/`market`, số mức giá, snapshot hay delta, múi giờ của `t`: chỉ xác minh được bằng frame thật (không thay đổi so với trước).
-8. Bước giá (tick size) theo mức giá và sàn: lấy từ quy định sàn, không hardcode khi chưa xác minh.
 
 ## 2. Công thức (đơn vị nội bộ: VND, số nguyên)
 
