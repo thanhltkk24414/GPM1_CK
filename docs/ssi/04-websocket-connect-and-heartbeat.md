@@ -101,26 +101,27 @@ Response mẫu (tóm tắt scope):
 
 ## Ghi chú của dự án (không thuộc tài liệu SSI)
 
-- **[Kiểm tra]** Cách gắn token khi kết nối `wss://stream.ssi.com.vn` (header, query hay thông điệp đầu tiên) và vai trò `client_id`: tài liệu đã có không nói rõ.
-- **[Kiểm tra]** Cú pháp `quote`: trang Sub/Unsub cho `quote.[...]@[tick/1m/5m]`, trang này chỉ ghi `quote.<symbol>@tick`.
-- Đồ án chỉ subscribe kênh `DATA`, không dùng kênh `TRADING`.
+Nguồn: tài liệu và mã nguồn `ssi-sdk` 3.3.2 (đọc 2026-11-16; chi tiết ở `10-python-sdk-notes.md`) và smoke test thật 2026-11-16 17:34 (thị trường đã đóng cửa).
 
-## Ghi chú của dự án (không thuộc tài liệu SSI)
-
-Nguồn: tài liệu và mã nguồn `ssi-sdk` 3.3.2 (đọc ngày 2026-11-16), **chưa thử với server thật**. Chi tiết: `10-python-sdk-notes.md`.
-
-- **[Xác nhận từ SDK, chưa thử thật]** URL mặc định của SDK là `wss://stream.ssi.com.vn/ws/v3`. Token gắn bằng header HTTP `Authorization: Bearer <accessToken>` khi handshake. `client_id` không dùng cho token và dữ liệu thị trường.
-- **[Kiểm tra]** Chiều heartbeat: tài liệu trên ghi server gửi `PING`, client trả `PONG`; SDK lại tự gửi `{"method":"PING_PONG","channel":"HEARTBEAT"}` từ client. Ghi mọi frame `HEARTBEAT` thật để xác định.
-- Mỗi `apiKey` chỉ có 1 phiên hoạt động; tối đa 10 kết nối mỗi client. Sau khi reconnect phải subscribe lại.
-- Mọi lỗi sau khi đã kết nối (mất mạng, token hết hạn) không ném ra luồng chính trong SDK; collector tự viết cần ghi `collector_events` cho từng lần ngắt và nối lại.
-- **[Kiểm tra]** Server có chấp nhận header Bearer ở handshake không; mã lỗi hoặc mã đóng kết nối khi bị từ chối.
-- **[Kiểm tra]** `PONG` có echo đúng `time` của `PING` không, và định dạng `time` thực tế.
-- **[Kiểm tra]** Hành vi khi mở phiên thứ hai bằng cùng `apiKey` (đẩy phiên cũ hay từ chối).
-- **[Kiểm tra]** Cấu trúc bao ngoài (envelope) của mỗi frame dữ liệu: tài liệu chỉ mô tả phần `data`.
-- Quy tắc: **chỉ collector giữ token và mở WebSocket; dashboard không bao giờ gọi auth** (chỉ đọc SQLite).
-
-### Kết quả smoke test WebSocket thật (2026-11-16 17:34, thị trường đã đóng cửa)
-- **[Xác nhận bằng thực nghiệm 2026-11-16]** `wss://stream.ssi.com.vn/ws/v3` chấp nhận header `Authorization: Bearer <accessToken>` khi handshake, không cần `client_id`, không OTP.
-- **[Xác nhận bằng thực nghiệm 2026-11-16]** Server có frame xác nhận subscribe: `{"method":"SUBSCRIBE","channel":"DATA","status":"ok","message":"Subscribed to 10 topic(s)"}` (không có trong tài liệu SSI).
+### Đã xác nhận bằng thực nghiệm (2026-11-16)
+- **[Xác nhận bằng thực nghiệm 2026-11-16]** `wss://stream.ssi.com.vn/ws/v3` chấp nhận header `Authorization: Bearer <accessToken>` khi handshake; không cần `client_id`, không OTP. (Thay cho mục [Kiểm tra] cũ về cách gắn token.)
+- **[Xác nhận bằng thực nghiệm 2026-11-16]** Server gửi frame xác nhận subscribe: `{"method":"SUBSCRIBE","channel":"DATA","status":"ok","message":"Subscribed to 10 topic(s)"}` (không có trong tài liệu SSI).
 - **[Xác nhận bằng thực nghiệm 2026-11-16]** Phản hồi `LIST_SUBSCRIPTION` là `{"trading":"","data":"<các topic đã subscribe, nối bằng ;>"}`: scope trading rỗng, scope data liệt kê đúng 10 topic vừa gửi (`quote|trade|market` cho VIC, HPG, FPT và `market.flag`).
-- Trong 60 giây (ngoài giờ giao dịch) **không có frame HEARTBEAT nào** từ server và kết nối vẫn mở. Chu kỳ PING và chiều heartbeat vẫn **[Kiểm tra]**. Chưa có frame `quote`/`trade`/`market` nào (đã đóng cửa): cấu trúc bao ngoài, số mức giá, đơn vị giá, payload `market.flag` vẫn **[Kiểm tra]**, cần chạy lại trong giờ giao dịch.
+- Trong 60 giây (ngoài giờ giao dịch) **không có frame HEARTBEAT nào** từ server và kết nối vẫn mở khi client không gửi gì.
+
+### Từ SDK, chưa thử thật
+- Mỗi `apiKey` chỉ có 1 phiên hoạt động; tối đa 10 kết nối mỗi client. Sau khi reconnect phải subscribe lại.
+- Mọi lỗi sau khi đã kết nối (mất mạng, token hết hạn) không ném ra luồng chính trong SDK; collector tự viết phải ghi `collector_events` cho từng lần ngắt và nối lại.
+- SDK client tự gửi `{"method":"PING_PONG","channel":"HEARTBEAT"}`, khác với mô tả PING/PONG ở trên.
+
+### Quy tắc dự án
+- **Chỉ collector giữ token và mở WebSocket; dashboard không bao giờ gọi auth** (chỉ đọc SQLite).
+- Chỉ subscribe kênh `DATA`, không dùng kênh `TRADING`.
+- Ghi mọi frame `HEARTBEAT` thật (cả hai chiều) vào `collector_events`.
+
+### Còn [Kiểm tra]
+- **[Kiểm tra]** Chiều và chu kỳ heartbeat: ai gửi `PING`/`PONG`/`PING_PONG`, `PONG` có echo đúng `time` không, định dạng `time` thực tế. Chạy lại trong giờ giao dịch.
+- **[Kiểm tra]** Hành vi khi mở phiên thứ hai bằng cùng `apiKey` (đẩy phiên cũ hay từ chối).
+- **[Kiểm tra]** Cấu trúc bao ngoài (envelope) của frame dữ liệu `quote`/`trade`/`market`: tài liệu chỉ mô tả phần `data`; chưa có frame nào (đã đóng cửa).
+- **[Kiểm tra]** Cú pháp `quote`: trang Sub/Unsub cho `quote.[...]@[tick/1m/5m]`, trang này chỉ ghi `quote.<symbol>@tick`. (Smoke test subscribe `quote.VIC` không có `@tick` và được chấp nhận; chưa biết có nhận được dữ liệu không.)
+- **[Kiểm tra]** Số mức giá, đơn vị giá, payload `market.flag`: cần frame thật.
