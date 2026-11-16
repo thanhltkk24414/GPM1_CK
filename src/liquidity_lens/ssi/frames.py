@@ -112,3 +112,49 @@ class FrameStats:
             for i, m in enumerate(items, 1):
                 lines.append(f"sample {kind} #{i}: {m}")
         return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------------------------------
+# Frame -> kind mapping for Pipeline.handle.
+# [Kiểm tra] Written from the payload samples in docs/ssi/05 plus the control frames observed on
+# 2026-11-16. The real envelope of data frames is unknown until one is captured during trading hours,
+# so payload dicts are searched for anywhere inside the frame. Update this one function when it is known.
+# ---------------------------------------------------------------------------------------------------
+DATA_KINDS = ("quote", "trade", "market_ref", "market_flag")
+
+
+def map_frame(raw: str) -> tuple[str, Any]:
+    """Return (kind, payload). kind is one of quote, trade, market_ref, market_flag (payload = the data
+    dict), heartbeat / subscribe_ack / list_subscription (payload = the whole frame), unknown or non_json."""
+    try:
+        obj = json.loads(raw)
+    except json.JSONDecodeError:
+        return "non_json", None
+    dicts = list(_dicts(obj))
+    if any(d.get("channel") == "HEARTBEAT" or d.get("method") in HEARTBEAT_METHODS for d in dicts):
+        return "heartbeat", obj
+    if isinstance(obj, dict):
+        if obj.get("method") in ("SUBSCRIBE", "UNSUBSCRIBE") and "status" in obj:
+            return "subscribe_ack", obj
+        if set(obj) == {"trading", "data"}:
+            return "list_subscription", obj
+    for d in dicts:  # outermost first
+        keys = d.keys()
+        if {"s", "t", "bids", "asks"} <= keys and "p" not in keys:  # "p" next to bids/asks = oddlot
+            return "quote", d
+        if {"b", "t", "f"} <= keys and "s" not in keys:
+            return "market_flag", d
+        if {"s", "b", "t", "ce", "fl", "ref"} <= keys:
+            return "market_ref", d
+        if {"s", "t", "p", "q", "v", "si"} <= keys:
+            return "trade", d
+    return "unknown", None
+
+
+def describe_unknown(raw: str) -> dict:
+    """Type and length of a frame we could not map. Never the content."""
+    try:
+        obj = json.loads(raw)
+    except json.JSONDecodeError:
+        return {"type": "non_json", "length": len(raw)}
+    return {"type": classify(obj), "length": len(raw)}

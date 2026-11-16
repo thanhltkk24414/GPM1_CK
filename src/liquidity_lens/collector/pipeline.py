@@ -62,6 +62,13 @@ class Pipeline:
         ):
             self._board_flag[r["board"]] = r["flag"]  # later rows overwrite earlier ones
 
+    def log_event(self, event: str, detail: str | None = None, ts: datetime | None = None) -> None:
+        """Write one row to collector_events (timestamp defaults to now, Asia/Ho_Chi_Minh)."""
+        insert_many(
+            self.conn, "collector_events",
+            [{"ts": _iso(ts or datetime.now(config.TZ)), "event": event, "detail": detail}],
+        )
+
     def handle(self, kind: Kind, payload: dict, received_at: datetime) -> None:
         insert_many(
             self.conn,
