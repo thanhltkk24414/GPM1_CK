@@ -11,5 +11,6 @@ Chép từ văn bản người dùng sao chép trên https://developers.ssi.com.
 | `05-websocket-sub-unsub-market-data.md` | Topic `trade`, `quote`, `market`, `room`, `put`... và cấu trúc thông điệp |
 | `06-data-securities-summary.md` | REST dữ liệu tổng hợp theo ngày |
 | `09-error-codes.md` | Bảng mã lỗi |
+| `10-python-sdk-notes.md` | Ghi chú từ tài liệu và mã nguồn `ssi-sdk` 3.3.2 (tham chiếu, không dùng SDK) |
 
 Cố ý **không** lưu trang đặt lệnh điều kiện (FCO) và Trading vì đồ án không dùng các API đó.

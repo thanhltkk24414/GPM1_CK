@@ -104,3 +104,12 @@ Response mẫu (tóm tắt scope):
 - **[Kiểm tra]** Cách gắn token khi kết nối `wss://stream.ssi.com.vn` (header, query hay thông điệp đầu tiên) và vai trò `client_id`: tài liệu đã có không nói rõ.
 - **[Kiểm tra]** Cú pháp `quote`: trang Sub/Unsub cho `quote.[...]@[tick/1m/5m]`, trang này chỉ ghi `quote.<symbol>@tick`.
 - Đồ án chỉ subscribe kênh `DATA`, không dùng kênh `TRADING`.
+
+## Ghi chú của dự án (không thuộc tài liệu SSI)
+
+Nguồn: tài liệu và mã nguồn `ssi-sdk` 3.3.2 (đọc ngày 2026-11-16), **chưa thử với server thật**. Chi tiết: `10-python-sdk-notes.md`.
+
+- **[Xác nhận từ SDK, chưa thử thật]** URL mặc định của SDK là `wss://stream.ssi.com.vn/ws/v3`. Token gắn bằng header HTTP `Authorization: Bearer <accessToken>` khi handshake. `client_id` không dùng cho token và dữ liệu thị trường.
+- **[Kiểm tra]** Chiều heartbeat: tài liệu trên ghi server gửi `PING`, client trả `PONG`; SDK lại tự gửi `{"method":"PING_PONG","channel":"HEARTBEAT"}` từ client. Ghi mọi frame `HEARTBEAT` thật để xác định.
+- Mỗi `apiKey` chỉ có 1 phiên hoạt động; tối đa 10 kết nối mỗi client. Sau khi reconnect phải subscribe lại.
+- Mọi lỗi sau khi đã kết nối (mất mạng, token hết hạn) không ném ra luồng chính trong SDK; collector tự viết cần ghi `collector_events` cho từng lần ngắt và nối lại.

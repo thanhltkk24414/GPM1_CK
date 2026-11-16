@@ -15,18 +15,22 @@ Quy ước: **[Xác nhận]** = có trong tài liệu SSI đã đọc; **[Giả 
 | `POST https://api.ssi.com.vn/api/v3/auth/token` body `apiKey`, `apiSecret`; trả `tokenType`, `accessToken`, `expiresAt`, `refreshToken`, `refreshExpiresAt` | [Xác nhận] |
 | Token chỉ đọc dữ liệu: **không** truyền `otp`/`transactionId` | [Xác nhận] |
 | `POST /api/v3/auth/refresh` body `refreshToken` | [Xác nhận] |
-| `expiresAt`: trang auth-token ghi mili-giây, ví dụ lại 10 chữ số (giống giây) | [Kiểm tra] nhận biết theo số chữ số |
-| WebSocket `wss://stream.ssi.com.vn`, kênh `DATA`, thông điệp `{"method":"SUBSCRIBE","channel":"DATA","topics":[...]}` | [Xác nhận] |
+| `expiresAt`: tài liệu ghi mili-giây, nhưng thực tế 10 chữ số = **giây** (smoke test REST 2026-11-16); SDK cũng ghi epoch giây. `refreshExpiresAt` chưa quan sát | [Xác nhận bằng thực nghiệm 2026-11-16]; vẫn nhận biết theo số chữ số |
+| WebSocket `wss://stream.ssi.com.vn` (SDK dùng `wss://stream.ssi.com.vn/ws/v3`), kênh `DATA`, thông điệp `{"method":"SUBSCRIBE","channel":"DATA","topics":[...]}` | [Xác nhận] |
 | Topic: `trade`, `quote`, `room`, `put`, `oddlot`, `market`, `trade.index`, `indexsummary`; nhiều mã nối bằng `-` | [Xác nhận] |
 | `quote`: `s`, `t` (`YYYY/MM/DD HH:mm:ss`), `bids`, `asks` = danh sách `[giá, khối lượng]` (chuỗi). Mẫu có 5 mức | [Xác nhận] |
 | `trade`: `s`,`t`,`p` (đồng),`q`,`a`,`si` (B/S),`o`,`h`,`l`,`v` (tổng KL cộng dồn) | [Xác nhận] |
 | `market`: `ce`,`fl`,`ref` (giá trần/sàn/tham chiếu) và thông điệp cờ phiên `{b,t,f}` với `f` như ATO, LO, ATC | [Xác nhận] |
 | Heartbeat: server gửi `{"method":"PING","channel":"HEARTBEAT","time":...}`, client trả `PONG` cùng định dạng, nếu không phiên bị đóng | [Xác nhận] |
 | REST `GET /api/v3/data/securitiesSummary` (symbol hoặc index, from, to, phân trang) trả dữ liệu theo ngày, gồm `totalMatch`, `totalMatchValue` | [Xác nhận] |
-| Header giới hạn tần suất `X-RATELIMIT-LIMIT/REMAINING/RESET`; số cụ thể | [Kiểm tra] |
+| Header giới hạn tần suất: server gửi `X-RateLimit-Limit` và `X-RateLimit-Remaining`, **không** gửi `Reset`. `auth/token` limit 200, `securitiesSummary` limit 20 (chu kỳ chưa biết) | [Xác nhận bằng thực nghiệm 2026-11-16]; chu kỳ hồi: [Kiểm tra] |
+| REST `securitiesSummary`: body 200 có thêm `code` (số nguyên 200) và `msg` (rỗng); 25 trường đúng tài liệu; các bản ghi **không sắp xếp theo ngày**; `close` tính bằng đồng | [Xác nhận bằng thực nghiệm 2026-11-16] |
+| Gắn token khi kết nối WebSocket: header HTTP `Authorization: Bearer <accessToken>` ở bước handshake; `client_id` không dùng cho token và dữ liệu thị trường | [Xác nhận từ mã nguồn SDK 3.3.2, chưa thử thật] |
+| Cờ phiên: topic `market.flag` cho mọi sàn (board `HOSE/HNX/UPCOM/DER`, giá trị ví dụ `ATO`, `LO`, `ATC`); trần/sàn/tham chiếu: topic `market.<mã>` hoặc REST master data | [Xác nhận từ tài liệu SDK, chưa thử thật] |
+| Mỗi `apiKey` chỉ có **1 phiên hoạt động**; dùng lại refresh token làm server thu hồi mọi phiên của key (401103). Tối đa 10 kết nối WebSocket mỗi client | [Xác nhận từ tài liệu SDK]; lấy token mới có làm rớt WebSocket đang mở hay không: [Kiểm tra] |
 
 ### Cần kiểm tra bằng dữ liệu thật (smoke test ngày có key)
-1. **Cách gắn token khi kết nối WebSocket** và vai trò `client_id` (không có trong tài liệu đã đọc; xem mục Thực hành/SDK của SSI).
+1. ~~Cách gắn token và vai trò `client_id`~~: đã có từ SDK (header `Authorization: Bearer`, không cần `client_id`), **cần thử thật** ở smoke test WebSocket; nếu server đòi OTP thì dừng và báo, không dùng OTP.
 2. Số mức giá thực nhận trong `quote`, thứ tự (tốt nhất trước?), toàn bộ snapshot hay chỉ phần thay đổi (tài liệu báo bản sau sẽ chỉ gửi thay đổi).
 3. Đơn vị giá: `trade.p` ghi "đồng", còn `quote`/`put`/`market` trong mẫu là 45.45, 48.50 (nghìn đồng?). Cấu hình `QUOTE_PRICE_MULTIPLIER = 1000` [Giả định].
 4. Múi giờ của `t` (giả định giờ Việt Nam), tần suất cập nhật (độ phân giải giây).
@@ -34,7 +38,9 @@ Quy ước: **[Xác nhận]** = có trong tài liệu SSI đã đọc; **[Giả 
 6. Cờ phiên thực tế (`LO` có phải phiên khớp liên tục?), hành vi sổ lệnh quanh ATO, nghỉ trưa, ATC.
    - **[Kiểm tra]** Khung giờ dự phòng `config.CONTINUOUS_WINDOWS` = 09:15-11:30 và 13:00-14:30 (mọi sàn), chỉ dùng khi snapshot chưa có `session_flag`. Chưa có trong tài liệu SSI đã đọc; xác minh theo từng sàn bằng dữ liệu thật.
    - **[Kiểm tra]** Khung giờ dự phòng `CONTINUOUS_WINDOWS` chỉ đúng cho mã HOSE; giữ watchlist chỉ gồm mã HOSE cho đến khi xác minh các sàn khác.
-7. Chiều heartbeat (PONG echo trường `time` của PING?).
+7. Chiều heartbeat: `docs/ssi/04` ghi server gửi `PING`, client trả `PONG` có `time`; SDK lại tự gửi `{"method":"PING_PONG","channel":"HEARTBEAT"}` từ client. Chưa biết cái nào đúng; ghi mọi frame `HEARTBEAT` thật vào `collector_events`.
+9. **Quy tắc phiên**: chỉ collector giữ token và kết nối WebSocket; dashboard Streamlit không bao giờ gọi `auth`; không chạy smoke test hay xin token thủ công khi collector đang chạy.
+10. Đơn vị giá thông điệp `quote`/`market`, số mức giá, snapshot hay delta, múi giờ của `t`: chỉ xác minh được bằng frame thật (không thay đổi so với trước).
 8. Bước giá (tick size) theo mức giá và sàn: lấy từ quy định sàn, không hardcode khi chưa xác minh.
 
 ## 2. Công thức (đơn vị nội bộ: VND, số nguyên)

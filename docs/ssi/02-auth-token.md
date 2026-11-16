@@ -40,5 +40,7 @@ Xác thực apiKey/apiSecret để lấy access token và refresh token (kèm th
 
 ## Ghi chú của dự án (không thuộc tài liệu SSI)
 
-- **[Kiểm tra]** Tài liệu ghi `expiresAt` là mili-giây nhưng ví dụ ở trang "Cách lấy API Key" có 10 chữ số (giống giây). Collector nhận biết theo số chữ số.
+- **[Xác nhận bằng thực nghiệm 2026-11-16]** Tài liệu ghi `expiresAt` là mili-giây nhưng thực tế trả 10 chữ số = **giây**. Collector vẫn nhận biết theo số chữ số. `refreshExpiresAt` chưa quan sát, kiểm tra tương tự.
+- Phản hồi 200 đủ 5 trường; `tokenType` là `Bearer`. Giới hạn `auth/token`: 200 (header `X-RateLimit-Limit`); lấy token một lần rồi dùng lại, làm mới bằng `auth/refresh`.
+- Mỗi `apiKey` chỉ có 1 phiên hoạt động (theo tài liệu SDK): xem `10-python-sdk-notes.md`.
 - Đồ án chỉ dùng token đọc dữ liệu: **không** truyền `otp`/`transactionId`.
