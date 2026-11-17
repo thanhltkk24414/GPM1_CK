@@ -2,7 +2,7 @@
 
 TABLES = (
     "raw_message", "market_ref", "session_flag", "trade_tick",
-    "book_snapshot", "metrics_1m", "alerts", "collector_events",
+    "book_snapshot", "metrics_1m", "alerts", "collector_events", "symbol_board",
 )
 
 DDL = """
@@ -84,5 +84,9 @@ CREATE TABLE IF NOT EXISTS collector_events (
     ts TEXT NOT NULL,
     event TEXT NOT NULL,
     detail TEXT
+);
+CREATE TABLE IF NOT EXISTS symbol_board (
+    symbol TEXT PRIMARY KEY,
+    board TEXT NOT NULL
 );
 """

@@ -34,3 +34,6 @@ DEFAULT_BOARD = "HOSE"
 # stamped 09:15:00.005 for VIC, HPG, FPT, and the first continuous trades came at 09:15:01.649 or later.
 # [Kiểm tra] HOSE only; one HPG trade at 09:15:00.438 (opening price) cannot be classified. Re-check per board.
 OPENING_MATCH_WINDOW = (time(9, 15, 0), time(9, 15, 1))
+
+# Boards the collector can handle.
+BOARDS = ("HOSE", "HNX", "UPCOM")

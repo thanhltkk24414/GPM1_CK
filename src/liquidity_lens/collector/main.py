@@ -18,7 +18,7 @@ import sys
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Callable, Mapping, Sequence
 
 from liquidity_lens import config
 from liquidity_lens.envfile import load_env
@@ -28,12 +28,26 @@ from liquidity_lens.data.store import init_db
 from liquidity_lens.ssi.auth import BASE_URL, TokenManager
 from liquidity_lens.ssi.redact import mask
 from liquidity_lens.ssi.stream import DEFAULT_URL, StreamClient, default_connect
+from liquidity_lens.watchlist import read_watchlist_csv
 
 _SYMBOL_RE = re.compile(r"^[A-Z0-9]{2,10}$")
 
 
+def load_watchlist_boards(path: str | Path) -> dict[str, str]:
+    """{symbol: board}. A .csv file (`symbol,board`) carries the boards; a .txt file is a plain list, all HOSE."""
+    if Path(path).suffix.lower() == ".csv":
+        mapping = read_watchlist_csv(Path(path).read_text(encoding="utf-8-sig"))
+        if not mapping:
+            raise ValueError("watchlist is empty")
+        return mapping
+    return {sym: "HOSE" for sym in load_watchlist(path)}
+
+
 def load_watchlist(path: str | Path) -> list[str]:
-    """One symbol per line; '#' starts a comment. [Kiểm tra] Only HOSE symbols are supported for now."""
+    """One symbol per line; '#' starts a comment. A .csv file (`symbol,board`) is read through
+    load_watchlist_boards and only its symbols are returned."""
+    if Path(path).suffix.lower() == ".csv":
+        return list(load_watchlist_boards(path))
     out: list[str] = []
     for line in Path(path).read_text(encoding="utf-8").splitlines():
         sym = line.split("#", 1)[0].strip().upper()
@@ -87,8 +101,10 @@ class Collector:
         now: Callable[[], datetime] | None = None,
         redact: Callable[[str], str] | None = None,
         on_auth_failure: Callable[[], None] | None = None,
+        symbol_board: Mapping[str, str] | None = None,
     ) -> None:
         self.symbols = list(symbols)
+        self.symbol_board = dict(symbol_board) if symbol_board is not None else None
         self._now = now or (lambda: datetime.now(config.TZ))
         self.flush_interval_s = flush_interval_s
         self.pipeline = Pipeline(conn, today=self._now().date(), batch=True, commit_every=commit_every)
@@ -118,7 +134,16 @@ class Collector:
                     self.event_counts["FLUSH_ERROR"] += 1
                     print(f"flush failed: {type(e).__name__}: {e}", file=sys.stderr)
 
+    def _save_symbol_board(self) -> None:
+        """Remember the board of each watchlist symbol (table symbol_board, added by init_db, never altered)."""
+        if self.symbol_board is None:
+            return
+        conn = self.pipeline.conn
+        conn.executemany("INSERT OR REPLACE INTO symbol_board (symbol, board) VALUES (?, ?)", sorted(self.symbol_board.items()))
+        conn.commit()
+
     async def run(self, stop: asyncio.Event) -> None:
+        self._save_symbol_board()
         self._event("COLLECTOR_START", json.dumps({"symbols": self.symbols}))
         stream_task = asyncio.create_task(self.stream.run(stop))
         flusher = asyncio.create_task(self._flush_loop(stop))
@@ -161,7 +186,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if missing:
         print(f"ERROR: missing environment variable(s): {', '.join(missing)} (see .env.example)", file=sys.stderr)
         return 2
-    symbols = resolve_watchlist(args.symbols)
+    symbol_board = load_watchlist_boards(args.symbols) if args.symbols else {s: "HOSE" for s in config.DEFAULT_WATCHLIST}
+    symbols = list(symbol_board)
 
     conn = init_db(args.db)
     prepare_connection(conn)
@@ -170,6 +196,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         conn, symbols, manager.authorization, url=args.ws_url,
         flush_interval_s=args.flush_interval, commit_every=args.commit_every,
         redact=lambda s: mask(s, manager.secrets()), on_auth_failure=manager.invalidate,
+        symbol_board=symbol_board,
     )
 
     async def amain() -> None:
