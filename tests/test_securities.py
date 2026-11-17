@@ -101,3 +101,17 @@ def test_script_non_json_response_is_saved_and_reported(tmp_path, capsys):
     assert mod.run("HOSE", tmp_path, mgr, http) == 1
     assert (tmp_path / "securities_HOSE.json").read_text(encoding="utf-8") == "<html>oops</html>"
     assert "HTTP 502" in capsys.readouterr().out
+
+
+def test_script_can_print_vietnamese_on_a_cp1252_console(monkeypatch):
+    import io
+    import sys
+
+    mod = _load_script()
+    raw = io.BytesIO()
+    console = io.TextIOWrapper(raw, encoding="cp1252", errors="strict")   # what a default Windows console gives
+    monkeypatch.setattr(sys, "stdout", console)
+    mod.force_utf8_stdout()
+    print("Ngân hàng Thương mại Cổ phần Á Châu")                          # would raise UnicodeEncodeError on cp1252
+    sys.stdout.flush()
+    assert "Á Châu".encode("utf-8") in raw.getvalue()

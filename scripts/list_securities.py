@@ -22,6 +22,12 @@ from liquidity_lens.ssi.redact import mask
 from liquidity_lens.ssi.securities import SECURITIES_PATH, describe_structure, fetch_securities_raw
 
 
+def force_utf8_stdout() -> None:
+    """Vietnamese names must print on a default Windows (cp1252) console instead of raising."""
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+
 def run(board: str, out_dir: Path, manager: TokenManager, http=urllib_http, base_url: str | None = None) -> int:
     kwargs = {"base_url": base_url} if base_url else {}
     status, headers, text = fetch_securities_raw(board, manager.authorization, http, **kwargs)
@@ -64,6 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out-dir", default="data/smoke")
     args = ap.parse_args(argv)
 
+    force_utf8_stdout()
     load_env()
     key, secret = os.environ.get("SSI_API_KEY", ""), os.environ.get("SSI_API_SECRET", "")
     missing = [n for n, v in (("SSI_API_KEY", key), ("SSI_API_SECRET", secret)) if not v]
