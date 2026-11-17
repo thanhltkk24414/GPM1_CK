@@ -76,3 +76,18 @@ def test_router_stores_real_frames(tmp_path):
     assert conn.execute("SELECT COUNT(*) FROM collector_events WHERE event='PARSE_ERROR'").fetchone()[0] == 0
     events = {r[0] for r in conn.execute("SELECT event FROM collector_events")}
     assert {"SUBSCRIBE_ACK", "LIST_SUBSCRIPTION"} <= events
+
+
+def test_replay_capture_feeds_only_inbound_frames(tmp_path):
+    from liquidity_lens.collector.replay import replay_capture
+
+    cap = tmp_path / "cap.jsonl"
+    lines = [{"label": "REAL SAMPLE, SSI WebSocket 2026-11-17 (test capture)", "url": "x"},
+             {"received_at": "2026-11-17T09:05:22.000+07:00", "direction": "out", "raw": '{"method":"SUBSCRIBE"}'}]
+    lines += [{"received_at": f"2026-11-17T09:15:0{i}.100+07:00", "direction": "in", "raw": raw}
+              for i, raw in enumerate(R.ALL_FRAMES)]
+    cap.write_text("\n".join(json.dumps(x) for x in lines) + "\n", encoding="utf-8")
+    seen = []
+    n = replay_capture(lambda raw, ts: seen.append((raw, ts)), cap)
+    assert n == len(R.ALL_FRAMES) == len(seen)
+    assert seen[0][0] == R.SUBSCRIBE_ACK and seen[0][1].isoformat().startswith("2026-11-17T09:15:00.100")
