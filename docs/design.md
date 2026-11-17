@@ -18,8 +18,8 @@ Quy ước: **[Xác nhận]** = có trong tài liệu SSI đã đọc; **[Giả 
 | `expiresAt`: tài liệu ghi mili-giây, nhưng thực tế 10 chữ số = **giây** (smoke test REST 2026-11-16); SDK cũng ghi epoch giây. `refreshExpiresAt` chưa quan sát | [Xác nhận bằng thực nghiệm 2026-11-16]; vẫn nhận biết theo số chữ số |
 | WebSocket `wss://stream.ssi.com.vn/ws/v3` (tài liệu ghi gốc không có `/ws/v3`), kênh `DATA`, thông điệp `{"method":"SUBSCRIBE","channel":"DATA","topics":[...]}`; server trả frame xác nhận `{"method":"SUBSCRIBE","channel":"DATA","status":"ok","message":"Subscribed to N topic(s)"}` | [Xác nhận bằng thực nghiệm 2026-11-16] |
 | Topic: `trade`, `quote`, `room`, `put`, `oddlot`, `market`, `trade.index`, `indexsummary`; nhiều mã nối bằng `-` | [Xác nhận] |
-| `quote`: `s`, `t` (`YYYY/MM/DD HH:mm:ss`), `bids`, `asks` = danh sách `[giá, khối lượng]` (chuỗi). Mẫu có 5 mức | [Xác nhận] |
-| `trade`: `s`,`t`,`p` (đồng),`q`,`a`,`si` (B/S),`o`,`h`,`l`,`v` (tổng KL cộng dồn) | [Xác nhận] |
+| `quote`: `s`, `t` (`YYYY/MM/DD HH:mm:ss`), `bids`, `asks` = danh sách `[giá, khối lượng]` (chuỗi). Mẫu trong tài liệu có 5 mức; thực tế 10 mức/phía, 3 mức thật, còn lại là `["0","0"]` (xem quan sát 2026-11-17) | [Xác nhận] cấu trúc; số mức: [Xác nhận bằng thực nghiệm 2026-11-17] |
+| `trade`: `s`,`t`,`p` (đồng),`q`,`a`,`si` (B/S),`o`,`h`,`l`,`v` (tổng KL cộng dồn); `t` có mili-giây (`09:15:00.005`) | [Xác nhận]; mili-giây: [Xác nhận bằng thực nghiệm 2026-11-17] |
 | `market`: `ce`,`fl`,`ref` (giá trần/sàn/tham chiếu) và thông điệp cờ phiên `{b,t,f}` với `f` như ATO, LO, ATC | [Xác nhận] |
 | Heartbeat: server gửi `{"method":"PING","channel":"HEARTBEAT","time":...}`, client trả `PONG` cùng định dạng, nếu không phiên bị đóng | [Xác nhận] |
 | REST `GET /api/v3/data/securitiesSummary` (symbol hoặc index, from, to, phân trang) trả dữ liệu theo ngày, gồm `totalMatch`, `totalMatchValue` | [Xác nhận] |
@@ -28,6 +28,15 @@ Quy ước: **[Xác nhận]** = có trong tài liệu SSI đã đọc; **[Giả 
 | Gắn token khi kết nối WebSocket: header HTTP `Authorization: Bearer <accessToken>` ở bước handshake được chấp nhận; không cần `client_id`, không OTP | [Xác nhận bằng thực nghiệm 2026-11-16] |
 | Cờ phiên: topic `market.flag` cho mọi sàn (board `HOSE/HNX/UPCOM/DER`, giá trị ví dụ `ATO`, `LO`, `ATC`); trần/sàn/tham chiếu: topic `market.<mã>` hoặc REST master data | [Xác nhận từ tài liệu SDK, chưa thử thật] |
 | Mỗi `apiKey` chỉ có **1 phiên hoạt động**; dùng lại refresh token làm server thu hồi mọi phiên của key (401103). Tối đa 10 kết nối WebSocket mỗi client | [Xác nhận từ tài liệu SDK]; lấy token mới có làm rớt WebSocket đang mở hay không: [Kiểm tra] |
+
+### Quan sát thật 2026-11-17 (3495 frame, 09:05 đến 09:20, VIC/HPG/FPT, `wss://stream.ssi.com.vn/ws/v3`)
+- **[Xác nhận bằng thực nghiệm 2026-11-17]** Giá `quote` và `trade` tính bằng **đồng** (HPG 20850, FPT 49400). `QUOTE_PRICE_MULTIPLIER = 1`; mẫu 45.45 trong tài liệu SSI không đúng với thực tế.
+- **[Xác nhận bằng thực nghiệm 2026-11-17]** Mỗi `quote` luôn có 10 mức mỗi phía, mức đệm là `["0","0"]`, chỉ 3 mức đầu là thật (2649/2649 frame); `parse_quote` bỏ mức có giá hoặc khối lượng 0.
+- **[Xác nhận bằng thực nghiệm 2026-11-17]** `quote` là **snapshot đầy đủ**, không phải delta: 1368/2649 cặp frame liên tiếp giống hệt nhau, 1129 cặp chỉ khác 1 mức nhưng vẫn mang đủ cả 6 mức.
+- **[Xác nhận bằng thực nghiệm 2026-11-17]** Cờ phiên (`market.FLAG`, `{"b":"HOSE","t":"...","f":"LO"}`) **chỉ gửi khi đổi trạng thái**, không gửi lại khi subscribe: kết nối lúc 09:05 không nhận được cờ ATO, chỉ nhận `LO` lúc 09:15:00. Hệ quả: phải kết nối trước khi cờ đổi, và nạp lại cờ từ SQLite khi collector khởi động lại.
+- **[Xác nhận bằng thực nghiệm 2026-11-17]** `market.VIC/HPG/FPT` không gửi frame nào (không có trần/sàn/tham chiếu qua WebSocket).
+- **[Xác nhận bằng thực nghiệm 2026-11-17]** **0 frame HEARTBEAT trong 15 phút**, kết nối vẫn mở khi client không gửi gì.
+- **[Xác nhận bằng thực nghiệm 2026-11-17]** Khớp mở cửa: toàn bộ trade mở cửa mang `t` = `09:15:00.005` (FPT 240, HPG 147, VIC 14 trade, cùng một giá); không có trade nào trước 09:15:00; trade liên tục đầu tiên từ `09:15:01.649`. Một trade HPG ở `09:15:00.438` (giá mở cửa) không phân loại được. Các trade trong `[09:15:00, 09:15:01)` được lưu trong `trade_tick` nhưng không cộng vào `volume` của thanh phút (`config.OPENING_MATCH_WINDOW`, **[Kiểm tra]** chỉ đã quan sát với HOSE buổi sáng).
 
 ### Cần kiểm tra bằng dữ liệu thật (smoke test ngày có key)
 1. ~~Cách gắn token và vai trò `client_id`~~: đã xác nhận bằng thực nghiệm 2026-11-16 (header `Authorization: Bearer`, không `client_id`, không OTP). Nếu sau này server đòi OTP thì dừng và báo, không dùng OTP.
@@ -88,3 +97,19 @@ Hai tiến trình: **collector** (WebSocket → raw → chuẩn hóa → SQLite,
 ## 7. Yêu cầu của đề cần chứng minh
 
 NEO/SSI là lõi dữ liệu; có lớp logic tài chính; sản phẩm chạy được; có kiểm chứng; ≥1 luồng WebSocket có lưu trữ; ≥3 trường dữ liệu; **≥5 phiên (ưu tiên 10)**; múi giờ Asia/Ho_Chi_Minh; không lộ khóa; không gửi lệnh thật; báo cáo 8–12 trang; tên tệp nộp `MSSV_HoTen_NEOAPI_FinTech.zip`.
+
+## 8. Quy trình chạy collector
+
+Mục này mô tả cách chạy cho một phiên giao dịch. Các điểm đánh dấu [Giả định] chưa được kiểm chứng.
+
+1. **Chuẩn bị một lần:** `python -m venv .venv`, kích hoạt, `pip install -e ".[dev]"`. Tạo tệp `.env` ở thư mục gốc dự án với hai dòng `SSI_API_KEY=...` và `SSI_API_SECRET=...` (tệp đã bị `.gitignore`; `.env.example` chỉ chứa tên biến, không có giá trị).
+2. **Nạp khóa:** collector và `scripts/smoke_test.py` **tự đọc `.env`** ở thư mục gốc bằng `liquidity_lens.envfile` (thư viện chuẩn, không dùng python-dotenv). Trên PowerShell không cần `$env:...` hay nạp thủ công. Biến đã đặt sẵn trong shell có giá trị thì được giữ nguyên, `.env` không ghi đè; giá trị không bao giờ được in ra.
+3. **Giờ bắt đầu khuyến nghị: 08:45 [Giả định].** Cờ phiên chỉ được gửi khi đổi trạng thái, nên cần kết nối trước giờ mở cửa để bắt cờ ATO (09:00) và `LO` (09:15); lần smoke test ngày 2026-11-17 bắt đầu 09:05 nên không thấy ATO.
+4. **Chạy (PowerShell, từ thư mục gốc dự án):**
+   ```
+   .\.venv\Scripts\python.exe -m liquidity_lens.collector.main
+   ```
+   Watchlist mặc định là `config.DEFAULT_WATCHLIST` = **VIC, HPG, FPT** (chỉ mã HOSE). Đổi bằng `--symbols FILE` (mỗi dòng một mã, `#` là chú thích). CSDL mặc định `data/liquidity_lens.db`, đổi bằng `--db`.
+5. **Một phiên mỗi apiKey:** chỉ collector giữ token. Không chạy `scripts/smoke_test.py`, không xin token thủ công và không mở collector thứ hai khi collector đang chạy; dashboard chỉ đọc SQLite.
+6. **Dừng:** Ctrl+C, collector ghi nốt dữ liệu và `SESSION_SUMMARY` rồi thoát gọn. Collector chưa tự dừng sau giờ đóng cửa: dừng thủ công sau khi phiên kết thúc (HOSE thường 14:45). Giữ máy không ngủ trong lúc chạy.
+7. **Kiểm tra sau phiên:** đếm dòng `book_snapshot`, `trade_tick`; trong `collector_events` xem `SESSION_SUMMARY`, số `UNKNOWN_FRAME`, `PARSE_ERROR`, `SILENCE_WARNING` và các cặp `DISCONNECT`/`CONNECT`. Chưa có CLI tính chỉ số cho CSDL thật: gọi `materialize_metrics(conn, ngày)` và `data_quality_report(conn, ngày)` (thư viện `liquidity_lens.analytics.materialize`, `liquidity_lens.data.report`). Với tệp ghi thô từ smoke test dùng `scripts/replay_capture.py`.
