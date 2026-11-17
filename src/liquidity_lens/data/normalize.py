@@ -15,7 +15,11 @@ def parse_vn_time(s: str) -> datetime:
 
 
 def _price(s: str, multiplier: int) -> int:
-    return int(Decimal(s) * multiplier)
+    """String price -> integer VND. Fails loudly on a fractional result instead of truncating it."""
+    value = Decimal(s) * multiplier
+    if value != value.to_integral_value():
+        raise ValueError(f"price {s!r} x {multiplier} is not a whole number of VND")
+    return int(value)
 
 
 def parse_quote(

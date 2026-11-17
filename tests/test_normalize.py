@@ -1,6 +1,10 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import pytest
+
+from liquidity_lens import config
+
 from liquidity_lens.data.normalize import (
     parse_market_ref,
     parse_quote,
@@ -8,7 +12,15 @@ from liquidity_lens.data.normalize import (
     parse_trade,
 )
 from liquidity_lens.finance.orderbook import Level
-from tests.fixtures.ssi_doc_samples import MARKET_FLAG, MARKET_REF, QUOTE, RECEIVED, TRADE
+from tests.fixtures.ssi_doc_samples import (
+    MARKET_FLAG,
+    MARKET_REF,
+    MARKET_REF_DOC_ORIGINAL,
+    QUOTE,
+    QUOTE_DOC_ORIGINAL,
+    RECEIVED,
+    TRADE,
+)
 
 
 def test_quote_prices_scaled_to_vnd():  # Review Focus 4
@@ -32,5 +44,15 @@ def test_session_flag():
     assert parse_session_flag(MARKET_FLAG).flag == "ATO"
 
 
-def test_multiplier_is_applied():
-    assert parse_quote(QUOTE, RECEIVED, price_multiplier=1).bids[0].price == 45
+def test_multiplier_is_applied_explicitly():
+    # The documentation sample (45.45) is in thousands of dong; an explicit multiplier still converts it.
+    assert parse_quote(QUOTE_DOC_ORIGINAL, RECEIVED, price_multiplier=1000).bids[0].price == 45450
+    assert parse_market_ref(MARKET_REF_DOC_ORIGINAL, price_multiplier=1000).ceiling == 48500
+
+
+def test_default_multiplier_is_one_and_fractional_dong_is_rejected():
+    assert config.QUOTE_PRICE_MULTIPLIER == 1
+    # With the default multiplier a documentation-style price (45.45) is not a whole number of dong:
+    # fail loudly (it becomes a PARSE_ERROR upstream) instead of silently truncating to 45.
+    with pytest.raises(ValueError):
+        parse_quote(QUOTE_DOC_ORIGINAL, RECEIVED)

@@ -5,8 +5,10 @@ from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
-# Prices in quote/market/put messages are scaled by this factor to get VND (assumption, verify with real data).
-QUOTE_PRICE_MULTIPLIER = 1000
+# Prices in quote/trade/market messages are multiplied by this factor to get VND. Real frames observed on
+# 2026-11-17 carry prices already in dong (HPG 20850, FPT 49400), so the factor is 1.
+# (The docs show 45.45-style samples; that was an assumption of 1000, now replaced by observation.)
+QUOTE_PRICE_MULTIPLIER = 1
 
 DB_PATH = Path(os.environ.get("LL_DB_PATH", "data/liquidity_lens.db"))
 

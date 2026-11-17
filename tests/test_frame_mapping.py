@@ -33,7 +33,7 @@ def test_map_control_and_heartbeat_frames():
 
 
 def test_oddlot_and_unknown_are_not_quotes():
-    oddlot = dict(QUOTE, p="45.50", q="80")  # oddlot has p and q next to bids/asks
+    oddlot = dict(QUOTE, p="45500", q="80")  # oddlot has p and q next to bids/asks
     assert map_frame(json.dumps(oddlot))[0] == "unknown"
     assert map_frame(json.dumps({"code": 1, "msg": "x"}))[0] == "unknown"
     assert map_frame("not json")[0] == "non_json"

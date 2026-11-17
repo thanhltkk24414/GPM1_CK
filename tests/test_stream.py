@@ -12,7 +12,7 @@ from liquidity_lens.ssi.stream import StreamClient, build_subscribe, build_unsub
 
 # Frames below are DOC SAMPLE-style (docs/ssi/04, 05) or shapes observed on 2026-11-16, not market data.
 PING = {"method": "PING", "channel": "HEARTBEAT", "time": "16-11-2026 09-00-05"}
-QUOTE = {"s": "SSI", "t": "2026/07/29 09:15:32", "bids": [["45.45", "3200"]], "asks": [["45.50", "2800"]]}
+QUOTE = {"s": "SSI", "t": "2026/07/29 09:15:32", "bids": [["45450", "3200"]], "asks": [["45500", "2800"]]}
 TOPICS = ["quote.SSI", "trade.SSI", "market.SSI", "market.flag"]
 
 

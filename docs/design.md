@@ -32,7 +32,7 @@ Quy ước: **[Xác nhận]** = có trong tài liệu SSI đã đọc; **[Giả 
 ### Cần kiểm tra bằng dữ liệu thật (smoke test ngày có key)
 1. ~~Cách gắn token và vai trò `client_id`~~: đã xác nhận bằng thực nghiệm 2026-11-16 (header `Authorization: Bearer`, không `client_id`, không OTP). Nếu sau này server đòi OTP thì dừng và báo, không dùng OTP.
 2. Số mức giá thực nhận trong `quote`, thứ tự (tốt nhất trước?), toàn bộ snapshot hay chỉ phần thay đổi (tài liệu báo bản sau sẽ chỉ gửi thay đổi).
-3. Đơn vị giá: `trade.p` ghi "đồng", còn `quote`/`put`/`market` trong mẫu là 45.45, 48.50 (nghìn đồng?). Cấu hình `QUOTE_PRICE_MULTIPLIER = 1000` [Giả định].
+3. Đơn vị giá: **[Xác nhận bằng thực nghiệm 2026-11-17]** `quote` và `trade` đều tính bằng **đồng** (HPG 20850, FPT 49400; xem `data/smoke/ws_20261117T090521.jsonl`). Do đó `QUOTE_PRICE_MULTIPLIER = 1`, thay cho giả định 1000 (mẫu 45.45 trong tài liệu SSI không phản ánh thực tế). `parse_*` báo lỗi nếu gặp giá không nguyên đồng thay vì cắt cụt. Đơn vị của `market.<mã>` (trần/sàn/tham chiếu) vẫn [Kiểm tra]: server không gửi frame nào cho topic này.
 4. Múi giờ của `t` (giả định giờ Việt Nam), tần suất cập nhật (độ phân giải giây).
 5. Cú pháp subscribe `quote.SYM` có/không `@tick`: `quote.VIC` (không `@tick`) được chấp nhận (2026-11-16), chưa biết có nhận dữ liệu không. `LIST_SUBSCRIPTION` trả `{"trading":"","data":"<topic nối bằng ;>"}` [Xác nhận bằng thực nghiệm 2026-11-16].
 6. Cờ phiên thực tế (`LO` có phải phiên khớp liên tục?), hành vi sổ lệnh quanh ATO, nghỉ trưa, ATC.

@@ -41,7 +41,7 @@ def test_flags_recorded(tmp_path):
     conn = init_db(tmp_path / "t.db")
     p = Pipeline(conn)
     crossed = copy.deepcopy(QUOTE)
-    crossed["bids"][0][0] = "45.60"
+    crossed["bids"][0][0] = "45600"
     p.handle("quote", crossed, RECEIVED)
     row = conn.execute("SELECT flags, bid_p1, n_bids, n_asks FROM book_snapshot").fetchone()
     assert "CROSSED" in row["flags"].split(",")
