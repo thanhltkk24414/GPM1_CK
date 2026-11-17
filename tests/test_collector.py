@@ -175,3 +175,14 @@ def test_each_subscribe_frame_gets_its_own_server_response_event(tmp_path):
         "SELECT detail FROM collector_events WHERE event='SUBSCRIBE_ACK' ORDER BY id")]
     assert [r["message"] for r in rows] == [f"Subscribed to {n} topic(s)" for n in (20, 20, 20, 20, 11)]
     assert all(r["status"] == "ok" for r in rows)
+
+
+def test_hose_all_file_is_loadable_and_well_formed():
+    import re
+
+    root = __import__("pathlib").Path(__file__).resolve().parents[1]
+    symbols = load_watchlist(root / "hose_all.txt")
+    assert symbols == sorted(set(symbols)) and len(symbols) > 0
+    assert all(re.fullmatch(r"[A-Z0-9]{3}", s) for s in symbols)
+    assert {"ACB", "FPT", "HPG", "VIC"} <= set(symbols)
+    assert not {"AMY", "BMJ", "ATP"} & set(symbols)            # stockType is null for these: excluded by decision
