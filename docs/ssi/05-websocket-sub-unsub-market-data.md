@@ -319,6 +319,4 @@ Sample output:
 ## Ghi chú của dự án (không thuộc tài liệu SSI)
 
 - [Xác nhận từ mã nguồn SDK, chưa thử thật] Topic `market.flag` trả cờ phiên của mọi sàn. Ví dụ subscribe: `{"method":"SUBSCRIBE","channel":"DATA","topics":["quote.SSI","trade.SSI","market.SSI","market.flag"]}`.
-- **[Kiểm tra]** Payload của `market.flag` có đúng dạng `{b,t,f}` như mẫu "Market flag" ở trên không.
-- **[Kiểm tra]** Số mức giá thực nhận trong `quote`, thứ tự mức, snapshot đầy đủ hay chỉ phần thay đổi.
-- **[Kiểm tra]** Đơn vị giá của `quote`/`market` (đồng hay nghìn đồng) so với mẫu 45.45.
+- **[Xác nhận bằng thực nghiệm 2026-11-17]** Payload `market.FLAG` đúng dạng `{b,t,f}`; `quote`/`trade` tính bằng đồng (mẫu 45.45 trong tài liệu là thang nghìn đồng, KHÔNG đúng với thực tế); `quote` luôn có 10 mức/phía với mức đệm `["0","0"]`, 3 mức đầu là thật. Chi tiết: `04`.

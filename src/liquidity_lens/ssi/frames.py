@@ -116,11 +116,29 @@ class FrameStats:
 
 # ---------------------------------------------------------------------------------------------------
 # Frame -> kind mapping for Pipeline.handle.
-# [Kiểm tra] Written from the payload samples in docs/ssi/05 plus the control frames observed on
-# 2026-11-16. The real envelope of data frames is unknown until one is captured during trading hours,
-# so payload dicts are searched for anywhere inside the frame. Update this one function when it is known.
+# [Xác nhận bằng thực nghiệm 2026-11-17] Data frames look like {"channel":"DATA","topic":"quote.HPG","data":{...}}
+# and the session-flag topic is "market.FLAG" (upper case). Topics are therefore matched case-insensitively, and
+# the topic decides the kind. Frames without a topic envelope fall back to the payload shapes of docs/ssi/05.
 # ---------------------------------------------------------------------------------------------------
 DATA_KINDS = ("quote", "trade", "market_ref", "market_flag")
+
+_REQUIRED_KEYS = {
+    "quote": {"s", "t", "bids", "asks"},
+    "trade": {"s", "t", "p", "q", "v", "si"},
+    "market_ref": {"s", "b", "t", "ce", "fl", "ref"},
+    "market_flag": {"b", "t", "f"},
+}
+
+
+def _kind_from_topic(topic: str) -> str:
+    head, _, rest = topic.strip().lower().partition(".")
+    if head == "quote":
+        return "quote"
+    if head == "trade":
+        return "unknown" if rest.startswith("index") else "trade"  # trade.index.* are index ticks
+    if head == "market":
+        return "market_flag" if rest == "flag" else "market_ref"
+    return "unknown"  # room, put, oddlot, indexsummary, ...: not subscribed by this project
 
 
 def map_frame(raw: str) -> tuple[str, Any]:
@@ -138,15 +156,22 @@ def map_frame(raw: str) -> tuple[str, Any]:
             return "subscribe_ack", obj
         if set(obj) == {"trading", "data"}:
             return "list_subscription", obj
-    for d in dicts:  # outermost first
+        if isinstance(obj.get("topic"), str) and isinstance(obj.get("data"), dict):
+            kind = _kind_from_topic(obj["topic"])
+            if kind != "unknown" and _REQUIRED_KEYS[kind] <= obj["data"].keys():
+                if kind == "quote" and "p" in obj["data"]:  # oddlot-like payload on a quote topic
+                    return "unknown", None
+                return kind, obj["data"]
+            return "unknown", None
+    for d in dicts:  # no known envelope: payload shapes from the documentation, outermost first
         keys = d.keys()
-        if {"s", "t", "bids", "asks"} <= keys and "p" not in keys:  # "p" next to bids/asks = oddlot
+        if _REQUIRED_KEYS["quote"] <= keys and "p" not in keys:  # "p" next to bids/asks = oddlot
             return "quote", d
-        if {"b", "t", "f"} <= keys and "s" not in keys:
+        if _REQUIRED_KEYS["market_flag"] <= keys and "s" not in keys:
             return "market_flag", d
-        if {"s", "b", "t", "ce", "fl", "ref"} <= keys:
+        if _REQUIRED_KEYS["market_ref"] <= keys:
             return "market_ref", d
-        if {"s", "t", "p", "q", "v", "si"} <= keys:
+        if _REQUIRED_KEYS["trade"] <= keys:
             return "trade", d
     return "unknown", None
 

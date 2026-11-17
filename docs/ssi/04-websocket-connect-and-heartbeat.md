@@ -122,6 +122,12 @@ Nguồn: tài liệu và mã nguồn `ssi-sdk` 3.3.2 (đọc 2026-11-16; chi ti�
 ### Còn [Kiểm tra]
 - **[Kiểm tra]** Chiều và chu kỳ heartbeat: ai gửi `PING`/`PONG`/`PING_PONG`, `PONG` có echo đúng `time` không, định dạng `time` thực tế. Chạy lại trong giờ giao dịch.
 - **[Kiểm tra]** Hành vi khi mở phiên thứ hai bằng cùng `apiKey` (đẩy phiên cũ hay từ chối).
-- **[Kiểm tra]** Cấu trúc bao ngoài (envelope) của frame dữ liệu `quote`/`trade`/`market`: tài liệu chỉ mô tả phần `data`; chưa có frame nào (đã đóng cửa).
+- ~~Cấu trúc bao ngoài của frame dữ liệu~~: đã xác nhận, xem mục 2026-11-17 bên dưới.
 - **[Kiểm tra]** Cú pháp `quote`: trang Sub/Unsub cho `quote.[...]@[tick/1m/5m]`, trang này chỉ ghi `quote.<symbol>@tick`. (Smoke test subscribe `quote.VIC` không có `@tick` và được chấp nhận; chưa biết có nhận được dữ liệu không.)
-- **[Kiểm tra]** Số mức giá, đơn vị giá, payload `market.flag`: cần frame thật.
+
+### Kết quả smoke test WebSocket thật trong giờ giao dịch (2026-11-17 09:05 đến 09:20, 3495 frame, 15 phút)
+- **[Xác nhận bằng thực nghiệm 2026-11-17]** Frame dữ liệu có dạng `{"channel":"DATA","topic":"quote.HPG","data":{...}}`; `data` đúng cấu trúc mẫu trong `05`. Topic cờ phiên là `market.FLAG` (chữ hoa), `data` = `{"b":"HOSE","t":"...","f":"LO"}`: so khớp topic không phân biệt hoa thường.
+- **[Xác nhận bằng thực nghiệm 2026-11-17]** Giá trong `quote` và `trade` tính bằng **đồng** (HPG 20850, FPT 49400). `trade.t` có mili-giây (`09:15:00.005`), `quote.t` chỉ đến giây.
+- **[Xác nhận bằng thực nghiệm 2026-11-17]** Mỗi `quote` luôn có 10 mức mỗi phía, mức đệm là `["0","0"]`; chỉ 3 mức đầu là thật (2649/2649 frame có đúng 3 mức thật mỗi phía, đệm nằm cuối).
+- **[Xác nhận bằng thực nghiệm 2026-11-17]** `market.VIC/HPG/FPT` không gửi frame nào (không có trần/sàn/tham chiếu qua WebSocket). Cờ phiên chỉ gửi khi đổi trạng thái, không gửi lại khi subscribe: không nhận được cờ ATO.
+- **[Xác nhận bằng thực nghiệm 2026-11-17]** 0 frame HEARTBEAT trong 15 phút, kết nối vẫn mở khi client không gửi gì. Chiều heartbeat vẫn **[Kiểm tra]** nhưng collector không phụ thuộc vào nó (chỉ ghi cảnh báo khi im lặng).
