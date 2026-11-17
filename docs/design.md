@@ -45,14 +45,38 @@ Quy ước: **[Xác nhận]** = có trong tài liệu SSI đã đọc; **[Giả 
 4. Múi giờ của `t` (giả định giờ Việt Nam), tần suất cập nhật (độ phân giải giây).
 5. Cú pháp subscribe `quote.SYM` có/không `@tick`: `quote.VIC` (không `@tick`) được chấp nhận (2026-11-16), chưa biết có nhận dữ liệu không. `LIST_SUBSCRIPTION` trả `{"trading":"","data":"<topic nối bằng ;>"}` [Xác nhận bằng thực nghiệm 2026-11-16].
 6. Cờ phiên thực tế (`LO` có phải phiên khớp liên tục?), hành vi sổ lệnh quanh ATO, nghỉ trưa, ATC.
-   - **[Kiểm tra]** Khung giờ dự phòng `config.CONTINUOUS_WINDOWS` = 09:15-11:30 và 13:00-14:30, chỉ dùng khi snapshot chưa có `session_flag`. Chưa có trong tài liệu SSI đã đọc; chỉ đúng cho mã HOSE, nên giữ watchlist chỉ gồm mã HOSE cho đến khi xác minh các sàn khác.
-   - **[Giả định, theo quan sát 2026-11-17]** Server không gửi `market.<mã>` nên không có `market_ref`/board theo mã: `config.DEFAULT_BOARD = "HOSE"` (watchlist chỉ gồm mã HOSE) quyết định cờ phiên nào gắn vào snapshot. Kiểm tra `OUT_OF_BAND` chỉ chạy khi có `market_ref`; số snapshot không có tham chiếu được báo trong `data_quality_report` (`snapshots_without_ref`). Cờ phiên chỉ được gửi khi đổi trạng thái nên được nạp lại từ SQLite khi collector khởi động lại.
+   - Khung giờ dự phòng khi snapshot chưa có `session_flag` nay **theo từng sàn** (`config.CONTINUOUS_WINDOWS_BY_BOARD`, `config.AUCTION_WINDOWS_BY_BOARD`); xem mục 1.1. `config.CONTINUOUS_WINDOWS` vẫn là khung của HOSE (09:15-11:30, 13:00-14:30) và không đổi.
+   - **[Giả định, theo quan sát 2026-11-17]** Server không gửi `market.<mã>` nên không có `market_ref`/board theo mã. Board của mỗi mã nay lấy từ bảng `symbol_board` (mục 1.1); `config.DEFAULT_BOARD = "HOSE"` chỉ còn dùng khi Pipeline được tạo **không có** ánh xạ (CSDL/test cũ). Kiểm tra `OUT_OF_BAND` chỉ chạy khi có `market_ref`; số snapshot không có tham chiếu được báo trong `data_quality_report` (`snapshots_without_ref`). Cờ phiên chỉ được gửi khi đổi trạng thái nên được nạp lại từ SQLite khi collector khởi động lại.
 7. Chiều heartbeat: `docs/ssi/04` ghi server gửi `PING`, client trả `PONG` có `time`; SDK lại tự gửi `{"method":"PING_PONG","channel":"HEARTBEAT"}` từ client. Chưa biết cái nào đúng; ghi mọi frame `HEARTBEAT` thật vào `collector_events`. Smoke test 2026-11-16 17:34 (đã đóng cửa): 60 giây không có PING nào từ server.
 8. Bước giá (tick size) theo mức giá và sàn: lấy từ quy định sàn, không hardcode khi chưa xác minh.
 9. **Quy tắc phiên**: chỉ collector giữ token và kết nối WebSocket; dashboard Streamlit không bao giờ gọi `auth`; không chạy smoke test hay xin token thủ công khi collector đang chạy.
 10. Đơn vị giá thông điệp `quote`/`market`, số mức giá, snapshot hay delta, múi giờ của `t`: chỉ xác minh được bằng frame thật (không thay đổi so với trước).
 
 11. **[Kiểm tra] Danh sách mã theo sàn (REST `GET /api/v3/data/securitiesByBoard?board=HOSE`, quan sát 2026-11-17; mẫu response chưa có trong tài liệu SSI).** Response là một danh sách (không bọc ngoài) gồm **926** phần tử, `board` = `HOSE` ở cả 926 phần tử, 19 trường giống nhau ở mọi phần tử: `symbol`, `symbolNameVi`, `symbolNameEn`, `board`, `lotSize`, `maturityDate`, `firstTradingDate`, `lastTradingDate`, `cwUnderlyingSymbol`, `cwExercisePrice`, `cwExecutionRatio`, `listedShare`, `icbCode`, `icbName`, `iIndex`, `iNav`, `openInterest`, `settlementPrice`, `stockType`. Phản hồi thô lưu ở `data/smoke/securities_HOSE.json` (không commit). **Danh sách có lẫn loại không phải cổ phiếu:** theo trường `stockType` có `Stock` 410, `CW Product` 461, `ETF Product` 21, `Investment Fund` 3 và `null` 31 (gồm các mã chỉ số như `VN30`, `VNINDEX`, `VN100` và 3 mã 3 chữ cái `AMY`, `BMJ`, `ATP`). Cả 410 mã `stockType = Stock` đều có 3 chữ cái (lô 100); chứng quyền có 8 ký tự và lô 10; ETF/quỹ có tiền tố `FU` và lô 1. Cả 30 mã trong `watchlist.txt` đều có trong danh sách và đều là `Stock`. **Đã xác nhận (chủ dự án, 2026-11-17):** trường mã = `symbol`, trường loại = `stockType`, chỉ lấy `stockType == "Stock"`; 3 mã `AMY`, `BMJ`, `ATP` (`stockType` rỗng, `lotSize` rỗng) bị loại. `python scripts/list_securities.py --board HOSE --write-watchlist hose_all.txt` ghi `hose_all.txt` (410 mã, đã commit, danh sách mã công khai). Giới hạn tần suất của endpoint: 20 request.
+
+### 1.1 Ba sàn: ánh xạ mã sang sàn và lịch phiên theo sàn
+
+**Đã xác minh (quan sát thật hoặc do chủ dự án cung cấp):**
+- **[Xác nhận bằng thực nghiệm 2026-11-17]** Danh sách mã theo sàn lấy từ REST `securitiesByBoard`, chỉ giữ `stockType == "Stock"`: **HOSE 410, HNX 299, UPCOM 808** mã (`hose_all.txt`, `hnx_all.txt`, `upcom_all.txt`; không có mã nào xuất hiện ở hai sàn: `scripts/build_watchlist.py` dừng và báo nếu có).
+- **[Xác nhận bằng thực nghiệm 2026-11-17]** `market.FLAG` gửi cờ cho **mọi sàn** (`HOSE`, `HNX`, `UPCOM`, `DER`) và chỉ khi đổi trạng thái. Tên cờ đã thấy: `LO` (HOSE, 09:15:00, smoke test) và `BREAK` (cả bốn sàn, 11:30:00, CSDL thu 2026-11-17).
+- Ánh xạ mã sang sàn: tệp CSV `symbol,board` (`watchlist_all.csv`, 1517 mã, tạo bằng `python scripts/build_watchlist.py`); collector nạp được `.csv`, còn tệp `.txt` cũ vẫn chạy và coi mọi mã là HOSE. Collector ghi ánh xạ vào bảng mới `symbol_board(symbol, board)` (`CREATE TABLE IF NOT EXISTS`; chỉ thêm bảng, không sửa bảng nào đang có dữ liệu).
+- Pipeline gắn cho mỗi snapshot **cờ của sàn của chính mã đó**. Mã không có trong ánh xạ giữ cờ `None` (không đoán) và được đếm trong `data_quality_report` (`snapshots_unmapped`).
+- Loại trừ khớp định kỳ mở cửa khỏi `volume` chỉ áp dụng cho mã HOSE (HNX và UPCOM không có ATO); khi CSDL không có ánh xạ thì mọi mã được coi là HOSE như trước.
+
+**Lịch phiên dự phòng theo sàn** (chỉ dùng khi snapshot chưa có `session_flag`; nguồn: quy chế HOSE/HNX do chủ dự án tra, **chưa quan sát trong dữ liệu SSI**):
+
+| Sàn | Liên tục | ATO | ATC | Sau giờ |
+|---|---|---|---|---|
+| HOSE | 09:15-11:30, 13:00-14:30 | 09:00-09:15 | 14:30-14:45 | không |
+| HNX | 09:00-11:30, 13:00-14:30 | không | 14:30-14:45 | PLO 14:45-15:00 |
+| UPCOM | 09:00-11:30, 13:00-15:00 | không | không | không |
+
+**[Kiểm tra] chưa quan sát:**
+- Tên cờ thật của HNX và UPCOM trong phiên liên tục: collector đang giả định là `LO` (`config.CONTINUOUS_FLAGS`) cho mọi sàn. Nếu tên khác, các snapshot đó sẽ bị loại khỏi thanh phút (cờ khác `LO` và không phải `None`). Cần đối chiếu `session_flag` của HNX/UPCOM trong phiên liên tục.
+- Tên cờ `ATO`, `ATC`, `PLO`: chưa quan sát; trong lịch dự phòng chúng chỉ là nhãn của các pha không liên tục.
+- Mốc 09:00 của HNX/UPCOM và 15:00 của UPCOM, ngày nghỉ lễ, và việc UPCOM có phiên thỏa thuận riêng.
+- Số topic khi theo dõi cả ba sàn: 1517 mã = 3035 topic = 152 khung SUBSCRIBE (20 topic/khung); chưa biết server chấp nhận bao nhiêu topic trong một phiên.
+- Lịch `BREAK` 11:30 được thấy cho cả bốn sàn; tên cờ khi nghỉ trưa kết thúc (13:00) chưa quan sát.
 
 ## 2. Công thức (đơn vị nội bộ: VND, số nguyên)
 
@@ -85,6 +109,7 @@ Quy ước: **[Xác nhận]** = có trong tài liệu SSI đã đọc; **[Giả 
 | `metrics_1m` | symbol, minute, spread_abs, spread_bps, spread_ticks, obi1, obi3, depth_bid3, depth_ask3, depth_val_bid3, depth_val_ask3, volume, z_obi3, z_spread_bps, z_volume, n_obs (PK symbol+minute) |
 | `alerts` | id, symbol, minute, metric, value, z, severity, message |
 | `collector_events` | id, ts, event, detail |
+| `symbol_board` | symbol (PK), board; ánh xạ mã sang sàn do collector ghi (bảng thêm sau, `CREATE TABLE IF NOT EXISTS`) |
 
 ## 5. Kiến trúc
 
@@ -111,7 +136,7 @@ Mục này mô tả cách chạy cho một phiên giao dịch. Các điểm đá
    ```
    .\.venv\Scripts\python.exe -m liquidity_lens.collector.main
    ```
-   Watchlist mặc định là `config.DEFAULT_WATCHLIST` = **VIC, HPG, FPT** (chỉ mã HOSE). Đổi bằng `--symbols FILE` (mỗi dòng một mã, `#` là chú thích). CSDL mặc định `data/liquidity_lens.db`, đổi bằng `--db`.
+   Watchlist mặc định là `config.DEFAULT_WATCHLIST` = **VIC, HPG, FPT** (HOSE). Đổi bằng `--symbols FILE`: tệp `.txt` (mỗi dòng một mã, `#` là chú thích; coi là HOSE) hoặc tệp `.csv` `symbol,board` (ví dụ `watchlist_all.csv` cho cả ba sàn, tạo bằng `scripts/build_watchlist.py`). CSDL mặc định `data/liquidity_lens.db`, đổi bằng `--db`.
 5. **Một phiên mỗi apiKey:** chỉ collector giữ token. Không chạy `scripts/smoke_test.py`, không xin token thủ công và không mở collector thứ hai khi collector đang chạy; dashboard chỉ đọc SQLite.
 6. **Dừng:** Ctrl+C, collector ghi nốt dữ liệu và `SESSION_SUMMARY` rồi thoát gọn. Collector chưa tự dừng sau giờ đóng cửa: dừng thủ công sau khi phiên kết thúc (HOSE thường 14:45). Giữ máy không ngủ trong lúc chạy.
 7. **Kiểm tra sau phiên:** đếm dòng `book_snapshot`, `trade_tick`; trong `collector_events` xem `SESSION_SUMMARY`, số `UNKNOWN_FRAME`, `PARSE_ERROR`, `SILENCE_WARNING` và các cặp `DISCONNECT`/`CONNECT`. Tính chỉ số cho CSDL thật bằng `python scripts/materialize.py [--date YYYY-MM-DD] [--db PATH] [--symbols A,B]` (mặc định hôm nay theo Asia/Ho_Chi_Minh); script in báo cáo chất lượng dữ liệu dạng bảng và có thể chạy lại nhiều lần. Với tệp ghi thô từ smoke test dùng `scripts/replay_capture.py`.
