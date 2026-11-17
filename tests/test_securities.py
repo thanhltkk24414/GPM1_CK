@@ -115,3 +115,70 @@ def test_script_can_print_vietnamese_on_a_cp1252_console(monkeypatch):
     print("Ngân hàng Thương mại Cổ phần Á Châu")                          # would raise UnicodeEncodeError on cp1252
     sys.stdout.flush()
     assert "Á Châu".encode("utf-8") in raw.getvalue()
+
+
+# ----------------------------------------------------------------------------- --write-watchlist
+# Invented rows exercising the confirmed rule: code field = symbol, type field = stockType, keep "Stock" only.
+def _row(symbol, stock_type="Stock", board="HOSE"):
+    return {"symbol": symbol, "board": board, "stockType": stock_type, "lotSize": "100"}
+
+
+ROWS = [_row("VCB"), _row("ACB"), _row("ACB"), _row("CVNM2603", "CW Product"), _row("FUEVN100", "ETF Product"),
+        _row("AMY", None), _row("VN30", None), _row("HPG", "Stock", board="HNX"), _row("FPT")]
+FETCHED = datetime(2026, 11, 17, 10, 30, tzinfo=TZ)
+
+
+def test_build_watchlist_keeps_only_stock_of_the_board_sorted_and_deduplicated():
+    from liquidity_lens.ssi.securities import build_watchlist
+
+    text = build_watchlist(ROWS, "HOSE", FETCHED)
+    lines = text.splitlines()
+    assert lines[1:] == ["ACB", "FPT", "VCB"]
+    assert lines[0].startswith("#") and all(not ln.startswith("#") for ln in lines[1:])
+    for needle in ("securitiesByBoard", "HOSE", "2026-11-17", "Asia/Ho_Chi_Minh", "3 symbols", "Stock"):
+        assert needle in lines[0], needle
+    assert text.endswith("\n")
+
+
+def test_build_watchlist_stops_on_an_unexpected_symbol_instead_of_dropping_it():
+    from liquidity_lens.ssi.securities import build_watchlist
+
+    with pytest.raises(ValueError) as e:
+        build_watchlist(ROWS + [_row("AB1X"), _row("ab")], "HOSE", FETCHED)
+    assert "AB1X" in str(e.value) and "ab" in str(e.value)
+
+
+def test_build_watchlist_rejects_a_response_that_is_not_a_list_of_objects():
+    from liquidity_lens.ssi.securities import build_watchlist
+
+    with pytest.raises(ValueError):
+        build_watchlist({"data": []}, "HOSE", FETCHED)
+
+
+def test_script_writes_watchlist_from_the_saved_raw_file_without_calling_the_api(tmp_path, capsys):
+    mod = _load_script()
+    (tmp_path / "securities_HOSE.json").write_text(json.dumps(ROWS), encoding="utf-8")
+    target = tmp_path / "hose_all.txt"
+
+    def no_api():
+        raise AssertionError("the API must not be called when the raw file exists")
+
+    rc = mod.write_watchlist("HOSE", tmp_path, target, fetch_raw=no_api, now=FETCHED)
+    assert rc == 0 and target.read_text(encoding="utf-8").splitlines()[1:] == ["ACB", "FPT", "VCB"]
+    assert "3 symbols" in capsys.readouterr().out
+
+
+def test_script_calls_the_api_when_there_is_no_raw_file(tmp_path):
+    mod = _load_script()
+    target = tmp_path / "hose_all.txt"
+    rc = mod.write_watchlist("HOSE", tmp_path, target, fetch_raw=lambda: (200, {}, json.dumps(ROWS)), now=FETCHED)
+    assert rc == 0 and (tmp_path / "securities_HOSE.json").read_text(encoding="utf-8") == json.dumps(ROWS)
+    assert target.read_text(encoding="utf-8").splitlines()[1:] == ["ACB", "FPT", "VCB"]
+
+
+def test_script_writes_nothing_when_a_symbol_is_unexpected(tmp_path, capsys):
+    mod = _load_script()
+    (tmp_path / "securities_HOSE.json").write_text(json.dumps(ROWS + [_row("ABCD")]), encoding="utf-8")
+    target = tmp_path / "hose_all.txt"
+    rc = mod.write_watchlist("HOSE", tmp_path, target, fetch_raw=lambda: None, now=FETCHED)
+    assert rc == 3 and not target.exists() and "ABCD" in capsys.readouterr().out

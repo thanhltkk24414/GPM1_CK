@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import re
 import urllib.parse
+from datetime import datetime
 from typing import Any, Callable
 
+from liquidity_lens import config
 from liquidity_lens.ssi.auth import BASE_URL, HttpFn, urllib_http
 
 SECURITIES_PATH = "/api/v3/data/securitiesByBoard"
@@ -52,3 +54,26 @@ def describe_structure(parsed: Any, samples: int = 3) -> dict:
         "top_level_keys": list(parsed) if isinstance(parsed, dict) else None,
         "lists": lists,
     }
+
+
+STOCK_TYPE = "Stock"
+_SYMBOL_RE = re.compile(r"^[A-Z0-9]{3}$")
+
+
+def build_watchlist(items: Any, board: str, fetched_at: datetime) -> str:
+    """Watchlist text for one board: only items with board == BOARD and stockType == "Stock" (confirmed by the
+    project owner on 2026-11-17: code field = symbol, type field = stockType), sorted, no duplicates, one symbol
+    per line, preceded by one comment line. Raises ValueError, writing nothing, if any kept symbol is not
+    three upper-case letters/digits: unexpected codes are reported, never silently dropped."""
+    if not isinstance(items, list) or not all(isinstance(i, dict) for i in items):
+        raise ValueError("expected the response to be a list of objects")
+    board = board.upper()
+    kept = [i for i in items if i.get("board") == board and i.get("stockType") == STOCK_TYPE]
+    odd = sorted({repr(i.get("symbol")) for i in kept if not _SYMBOL_RE.match(str(i.get("symbol")))})
+    if odd:
+        raise ValueError(f"unexpected symbol(s), expected ^[A-Z0-9]{{3}}$: {', '.join(odd)}")
+    symbols = sorted({i["symbol"] for i in kept})
+    when = fetched_at.astimezone(config.TZ).date().isoformat()
+    header = (f"# source: securitiesByBoard; board: {board}; fetched: {when} ({config.TZ.key}); "
+              f"filter: stockType == {STOCK_TYPE}; {len(symbols)} symbols")
+    return "\n".join([header, *symbols]) + "\n"
