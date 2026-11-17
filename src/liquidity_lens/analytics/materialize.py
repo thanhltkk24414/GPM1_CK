@@ -35,7 +35,10 @@ def effective_flag(flag: str | None, ts: datetime, board: str | None = "HOSE") -
 
 def load_symbol_board(conn: sqlite3.Connection) -> dict[str, str]:
     """The symbol -> board mapping saved by the collector (empty for databases from before the mapping existed)."""
-    return {r["symbol"]: r["board"] for r in conn.execute("SELECT symbol, board FROM symbol_board")}
+    try:
+        return {r["symbol"]: r["board"] for r in conn.execute("SELECT symbol, board FROM symbol_board")}
+    except sqlite3.OperationalError:  # connection to a database that predates the table
+        return {}
 
 
 def _book_from_row(r: sqlite3.Row) -> BookSnapshot:

@@ -346,3 +346,68 @@ def test_database_without_a_mapping_behaves_as_before(tmp_path):
     p.handle("quote", _quote("AAA", "2026/11/17 09:05:10"), _at(9, 5, 10))     # HOSE ATO: no bar
     p.handle("quote", _quote("AAA", "2026/11/17 09:20:10"), _at(9, 20, 10))
     assert set(_bars(conn)) == {("AAA", "09:20")}
+
+
+# ------------------------------------------------------------------------------- per-board data quality report
+def _report_db(tmp_path):
+    conn, p = _db(tmp_path, mapping={"AAA": "HOSE", "BBB": "HOSE", "HHH": "HNX", "UUU": "UPCOM"})
+    _seed_mapping(conn, {"AAA": "HOSE", "BBB": "HOSE", "HHH": "HNX", "UUU": "UPCOM"})
+    p.handle("market_flag", _flag("HOSE", "LO"), _at(9, 15))
+    p.handle("market_flag", _flag("HNX", "BREAK", "2026/11/17 11:30:00"), _at(11, 30))
+    p.handle("quote", _quote("AAA", "2026/11/17 09:20:10"), _at(9, 20, 10))
+    p.handle("quote", _quote("AAA", "2026/11/17 09:21:10"), _at(9, 21, 10))
+    p.handle("quote", _quote("HHH", "2026/11/17 11:31:10"), _at(11, 31, 10))
+    p.handle("quote", _quote("ZZZ", "2026/11/17 09:20:10"), _at(9, 20, 10))     # not in the mapping
+    conn.commit()
+    return conn
+
+
+def test_report_has_per_board_statistics_when_a_mapping_exists(tmp_path):
+    from liquidity_lens.data.report import data_quality_report
+
+    rep = data_quality_report(_report_db(tmp_path), DAY)
+    hose, hnx, upcom = rep["by_board"]["HOSE"], rep["by_board"]["HNX"], rep["by_board"]["UPCOM"]
+    assert hose == {"expected_symbols": 2, "symbols_with_snapshots": 1, "snapshots_by_session_flag": {"LO": 2}}
+    assert hnx == {"expected_symbols": 1, "symbols_with_snapshots": 1, "snapshots_by_session_flag": {"BREAK": 1}}
+    assert upcom == {"expected_symbols": 1, "symbols_with_snapshots": 0, "snapshots_by_session_flag": {}}
+    assert rep["snapshots_unmapped"] == {"snapshots": 1, "symbols": 1}
+    assert rep["snapshots_by_session_flag"] == {"LO": 2, "BREAK": 1, None: 1}      # the overall table is unchanged
+
+
+def test_report_keeps_the_old_shape_without_a_mapping(tmp_path):
+    from liquidity_lens.data.report import data_quality_report
+
+    conn, p = _db(tmp_path, mapping=None)
+    p.handle("quote", _quote("AAA"), _at(9, 30))
+    rep = data_quality_report(conn, DAY)
+    assert "by_board" not in rep and "snapshots_unmapped" not in rep
+
+
+def test_format_report_prints_the_board_table_and_unmapped_line():
+    from liquidity_lens.data.report import format_report
+
+    report = {
+        "snapshots_by_session_flag": {"LO": 2}, "snapshots_without_ref": 2, "parse_errors": 0, "unknown_frames": 0,
+        "excluded_opening_trades": {}, "zero_std_ratio": {},
+        "by_board": {"HOSE": {"expected_symbols": 410, "symbols_with_snapshots": 399,
+                              "snapshots_by_session_flag": {"LO": 1000, None: 5}},
+                     "UPCOM": {"expected_symbols": 808, "symbols_with_snapshots": 0, "snapshots_by_session_flag": {}}},
+        "snapshots_unmapped": {"snapshots": 7, "symbols": 2},
+    }
+    text = format_report(DAY, 0, 0, report)
+    for needle in ("By board", "HOSE", "410", "399", "LO: 1000", "(none): 5", "UPCOM", "808",
+                   "not in symbol_board: 7 snapshot(s) of 2 symbol(s)"):
+        assert needle in text, needle
+
+
+def test_report_and_materialize_survive_a_database_that_has_no_symbol_board_table(tmp_path):
+    from liquidity_lens.analytics.materialize import materialize_metrics
+    from liquidity_lens.data.report import data_quality_report
+
+    conn, p = _db(tmp_path, mapping=None)
+    p.handle("quote", _quote("AAA", "2026/11/17 09:20:10"), _at(9, 20, 10))
+    conn.commit()
+    conn.execute("DROP TABLE symbol_board")                    # what a database from before this change looks like
+    assert materialize_metrics(conn, DAY, window=10, min_periods=5)[0] == 1
+    rep = data_quality_report(conn, DAY)
+    assert "by_board" not in rep and "snapshots_unmapped" not in rep

@@ -74,11 +74,42 @@ def data_quality_report(
             (day, start.strftime("%H:%M:%S"), end.strftime("%H:%M:%S")),
         )
     }
-    return {
+    report = {
         "snapshots_by_session_flag": by_flag, "parse_errors": parse_errors, "zero_std_ratio": ratio,
         "snapshots_without_ref": without_ref, "excluded_opening_trades": excluded,
         "unknown_frames": unknown_frames,
     }
+    report.update(_board_statistics(conn, day))
+    return report
+
+
+def _board_statistics(conn: sqlite3.Connection, day: str) -> dict:
+    """Per-board numbers from the symbol_board mapping. Empty (keys absent) for a database without a mapping."""
+    try:
+        expected = {r["board"]: r["n"] for r in conn.execute("SELECT board, COUNT(*) AS n FROM symbol_board GROUP BY board")}
+    except sqlite3.OperationalError:  # connection to a database that predates the table
+        return {}
+    if not expected:
+        return {}
+    by_board = {
+        board: {"expected_symbols": n, "symbols_with_snapshots": 0, "snapshots_by_session_flag": {}}
+        for board, n in expected.items()
+    }
+    for r in conn.execute(
+        "SELECT m.board AS board, COUNT(DISTINCT b.symbol) AS n FROM book_snapshot b "
+        "JOIN symbol_board m ON m.symbol = b.symbol WHERE b.ts LIKE ? GROUP BY m.board", (day,)
+    ):
+        by_board[r["board"]]["symbols_with_snapshots"] = r["n"]
+    for r in conn.execute(
+        "SELECT m.board AS board, b.session_flag AS flag, COUNT(*) AS n FROM book_snapshot b "
+        "JOIN symbol_board m ON m.symbol = b.symbol WHERE b.ts LIKE ? GROUP BY m.board, b.session_flag", (day,)
+    ):
+        by_board[r["board"]]["snapshots_by_session_flag"][r["flag"]] = r["n"]
+    unmapped = conn.execute(
+        "SELECT COUNT(*) AS n, COUNT(DISTINCT symbol) AS s FROM book_snapshot b WHERE b.ts LIKE ? "
+        "AND NOT EXISTS (SELECT 1 FROM symbol_board m WHERE m.symbol = b.symbol)", (day,)
+    ).fetchone()
+    return {"by_board": by_board, "snapshots_unmapped": {"snapshots": unmapped["n"], "symbols": unmapped["s"]}}
 
 
 def _table(headers: list[str], rows: list[list[str]], indent: str = "  ") -> list[str]:
@@ -100,6 +131,20 @@ def format_report(
     lines += _table(["flag", "snapshots"], [["(none)" if f is None else f, n] for f, n in flags])
     lines.append(f"Snapshots without market_ref: {report['snapshots_without_ref']}")
     lines.append("")
+    if "by_board" in report:
+        lines.append("By board (symbols expected from symbol_board; snapshots by stored session flag)")
+        rows = []
+        for board in config.BOARDS:
+            if board not in report["by_board"]:
+                continue
+            b = report["by_board"][board]
+            flags = sorted(b["snapshots_by_session_flag"].items(), key=lambda kv: (kv[0] is None, str(kv[0])))
+            rows.append([board, b["expected_symbols"], b["symbols_with_snapshots"],
+                         ", ".join(f"{'(none)' if f is None else f}: {n}" for f, n in flags) or "-"])
+        lines += _table(["board", "expected", "with snapshots", "snapshots by flag"], rows)
+        u = report["snapshots_unmapped"]
+        lines.append(f"Symbols not in symbol_board: {u['snapshots']} snapshot(s) of {u['symbols']} symbol(s)")
+        lines.append("")
     lines.append("Collector events")
     lines.append(f"  PARSE_ERROR: {report['parse_errors']}")
     lines.append(f"  UNKNOWN_FRAME: {report['unknown_frames']}")
