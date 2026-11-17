@@ -8,6 +8,7 @@ import pytest
 from liquidity_lens.collector.main import Collector, build_topics, load_watchlist, prepare_connection
 from liquidity_lens.config import TZ
 from liquidity_lens.data.store import init_db
+from liquidity_lens.ssi.stream import build_subscribe_frames
 from tests.fixtures.ssi_doc_samples import MARKET_FLAG, MARKET_REF, QUOTE, TRADE
 from tests.test_stream import FakeWS
 
@@ -62,7 +63,7 @@ def test_load_watchlist_and_topics(tmp_path):
     f = tmp_path / "wl.txt"
     f.write_text("# HOSE only\nvic\n\nHPG  # liquid\nFPT\n", encoding="utf-8")
     assert load_watchlist(f) == ["VIC", "HPG", "FPT"]
-    assert build_topics(["VIC"]) == ["quote.VIC", "trade.VIC", "market.VIC", "market.flag"]
+    assert build_topics(["VIC"]) == ["quote.VIC", "trade.VIC", "market.flag"]        # no market.<symbol>: never any frame
     f.write_text("VIC\nbad symbol!\n", encoding="utf-8")
     with pytest.raises(ValueError):
         load_watchlist(f)
@@ -153,7 +154,10 @@ def test_repo_watchlist_file_has_the_30_symbols():
     root = __import__("pathlib").Path(__file__).resolve().parents[1]
     symbols = load_watchlist(root / "watchlist.txt")
     assert symbols == WATCHLIST_EXPECTED and len(symbols) == 30
-    assert len(build_topics(symbols)) == 91
+    topics = build_topics(symbols)
+    assert len(topics) == 61                                                          # 30 x (quote + trade) + market.flag
+    frames = build_subscribe_frames(topics)
+    assert [len(f["topics"]) for f in frames] == [20, 20, 20, 1] and len(frames) == 4
 
 
 def test_resolve_watchlist_defaults_to_three_symbols_without_symbols_option():
@@ -186,3 +190,28 @@ def test_hose_all_file_is_loadable_and_well_formed():
     assert all(re.fullmatch(r"[A-Z0-9]{3}", s) for s in symbols)
     assert {"ACB", "FPT", "HPG", "VIC"} <= set(symbols)
     assert not {"AMY", "BMJ", "ATP"} & set(symbols)            # stockType is null for these: excluded by decision
+
+
+def test_topics_per_symbol_are_quote_and_trade_only_plus_one_market_flag():
+    topics = build_topics(["VIC", "HPG"])
+    assert topics == ["quote.VIC", "trade.VIC", "quote.HPG", "trade.HPG", "market.flag"]
+    assert not [t for t in topics if t.startswith("market.") and t != "market.flag"]
+    assert topics.count("market.flag") == 1
+
+
+def test_410_symbols_give_821_topics_and_42_subscribe_frames():
+    symbols = [f"{a}{b}{c}" for a in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" for b in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" for c in "A"][:410]
+    assert len(set(symbols)) == 410
+    topics = build_topics(symbols)
+    assert len(topics) == 821
+    frames = build_subscribe_frames(topics)
+    assert len(frames) == 42 and all(len(f["topics"]) <= 20 for f in frames)
+    assert [len(f["topics"]) for f in frames][-2:] == [20, 1] and sum(len(f["topics"]) for f in frames) == 821
+
+
+def test_hose_all_file_gives_the_same_topic_and_frame_counts():
+    root = __import__("pathlib").Path(__file__).resolve().parents[1]
+    symbols = load_watchlist(root / "hose_all.txt")
+    topics = build_topics(symbols)
+    assert len(topics) == 2 * len(symbols) + 1
+    assert len(build_subscribe_frames(topics)) == -(-len(topics) // 20)

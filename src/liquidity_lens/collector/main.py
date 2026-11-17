@@ -54,7 +54,9 @@ def resolve_watchlist(path: str | Path | None) -> list[str]:
 
 
 def build_topics(symbols: Sequence[str]) -> list[str]:
-    return [f"{kind}.{s}" for s in symbols for kind in ("quote", "trade", "market")] + ["market.flag"]
+    # No market.<symbol>: the server never sent a frame for it (observed 2026-11-17), so it only cost topics.
+    # market.flag (session flag, all boards) is subscribed once.
+    return [f"{kind}.{s}" for s in symbols for kind in ("quote", "trade")] + ["market.flag"]
 
 
 def prepare_connection(conn: sqlite3.Connection) -> None:
