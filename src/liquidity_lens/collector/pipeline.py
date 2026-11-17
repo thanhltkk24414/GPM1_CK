@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import date, datetime
-from typing import Callable, Literal
+from typing import Callable, Mapping, Literal
 
 from liquidity_lens import config
 from liquidity_lens.data.normalize import (
@@ -37,12 +37,16 @@ class Pipeline:
         tick_for: Callable[[str, int], int] | None = None,
         today: date | None = None,
         batch: bool = False,
+        symbol_board: Mapping[str, str] | None = None,
         commit_every: int = 200,
     ) -> None:
         """batch=True defers commits: the caller (collector) calls flush() on a timer, and handle() also commits
         every `commit_every` messages. batch=False commits every write (default; what the tests rely on)."""
         self.conn = conn
         self.batch, self.commit_every = batch, commit_every
+        # {symbol: board}. When given, a snapshot gets the session flag of ITS board and a symbol missing from the
+        # mapping keeps flag None (no guess). When None (legacy), every symbol without a market_ref is on DEFAULT_BOARD.
+        self.symbol_board = dict(symbol_board) if symbol_board is not None else None
         self._messages_since_commit = 0
         self.tick_for = tick_for
         self._refs: dict[str, MarketRef] = {}
@@ -128,8 +132,11 @@ class Pipeline:
         first = (book.bids or book.asks or (None,))[0]
         tick = self.tick_for(book.symbol, first.price) if self.tick_for and first else None
         flags = quality_flags(book, ref=ref, tick=tick)
-        board = ref.board if ref else config.DEFAULT_BOARD  # no market_ref on the real feed: HOSE watchlist
-        session_flag = self._board_flag.get(board)
+        if self.symbol_board is not None:
+            board = self.symbol_board.get(book.symbol) or (ref.board if ref else None)
+        else:
+            board = ref.board if ref else config.DEFAULT_BOARD  # legacy: HOSE-only watchlist
+        session_flag = self._board_flag.get(board) if board else None
 
         row: dict = {
             "symbol": book.symbol,

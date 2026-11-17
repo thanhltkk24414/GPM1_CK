@@ -107,7 +107,8 @@ class Collector:
         self.symbol_board = dict(symbol_board) if symbol_board is not None else None
         self._now = now or (lambda: datetime.now(config.TZ))
         self.flush_interval_s = flush_interval_s
-        self.pipeline = Pipeline(conn, today=self._now().date(), batch=True, commit_every=commit_every)
+        self.pipeline = Pipeline(conn, today=self._now().date(), batch=True, commit_every=commit_every,
+                                 symbol_board=symbol_board)
         self.router = FrameRouter(self.pipeline, watchlist=self.symbols)
         self.event_counts: Counter[str] = Counter()
         self._finished = False

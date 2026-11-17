@@ -141,3 +141,92 @@ def test_build_script_stops_and_writes_nothing_on_a_symbol_in_two_files(tmp_path
     r = _script("--hose", str(tmp_path / "h.txt"), "--hnx", str(tmp_path / "x.txt"),
                 "--upcom", str(tmp_path / "u.txt"), "--out", str(out))
     assert r.returncode == 3 and "AAA" in r.stdout + r.stderr and not out.exists()
+
+
+# ------------------------------------------------------------------------------- per-board session flag
+def _quote(symbol, ts="2026/11/17 09:30:00"):
+    # DOC SAMPLE structure (docs/ssi/05) with the symbol replaced; prices in dong.
+    return {"s": symbol, "t": ts, "bids": [["20850", "100"], ["20800", "200"], ["20750", "300"]],
+            "asks": [["20950", "100"], ["21000", "200"], ["21050", "300"]]}
+
+
+def _flag(board, flag, ts="2026/11/17 09:15:00"):
+    return {"b": board, "t": ts, "f": flag}
+
+
+RECV = datetime(2026, 11, 17, 9, 30, 0, 500000, tzinfo=TZ)
+MAPPING = {"AAA": "HOSE", "HHH": "HNX", "UUU": "UPCOM"}
+
+
+def _flags_of(conn):
+    return {r["symbol"]: r["session_flag"] for r in conn.execute("SELECT symbol, session_flag FROM book_snapshot")}
+
+
+def test_each_symbol_gets_the_flag_of_its_own_board(tmp_path):
+    from liquidity_lens.collector.pipeline import Pipeline
+
+    conn = init_db(tmp_path / "t.db")
+    p = Pipeline(conn, today=DAY, symbol_board=MAPPING)
+    p.handle("market_flag", _flag("HOSE", "LO"), RECV)
+    p.handle("market_flag", _flag("HNX", "BREAK"), RECV)
+    p.handle("market_flag", _flag("UPCOM", "LO"), RECV)
+    for s in MAPPING:
+        p.handle("quote", _quote(s), RECV)
+    assert _flags_of(conn) == {"AAA": "LO", "HHH": "BREAK", "UUU": "LO"}
+
+
+def test_symbol_missing_from_the_mapping_keeps_flag_none_not_the_default_board(tmp_path):
+    from liquidity_lens.collector.pipeline import Pipeline
+
+    conn = init_db(tmp_path / "t.db")
+    p = Pipeline(conn, today=DAY, symbol_board=MAPPING)
+    p.handle("market_flag", _flag("HOSE", "LO"), RECV)
+    p.handle("quote", _quote("ZZZ"), RECV)                  # not in the mapping: no guess, even though HOSE has a flag
+    assert _flags_of(conn) == {"ZZZ": None}
+
+
+def test_without_a_mapping_the_old_default_board_behaviour_is_unchanged(tmp_path):
+    from liquidity_lens.collector.pipeline import Pipeline
+
+    conn = init_db(tmp_path / "t.db")
+    p = Pipeline(conn, today=DAY)
+    p.handle("market_flag", _flag("HOSE", "LO"), RECV)
+    p.handle("quote", _quote("ZZZ"), RECV)
+    assert _flags_of(conn) == {"ZZZ": "LO"}
+
+
+def test_flags_of_every_board_survive_a_restart(tmp_path):
+    from liquidity_lens.collector.pipeline import Pipeline
+
+    path = tmp_path / "t.db"
+    first = Pipeline(init_db(path), today=DAY, symbol_board=MAPPING)
+    first.handle("market_flag", _flag("HNX", "ATC", "2026/11/17 14:30:00"), RECV)
+    first.handle("market_flag", _flag("UPCOM", "LO", "2026/11/17 09:00:00"), RECV)
+    conn2 = init_db(path)
+    second = Pipeline(conn2, today=DAY, symbol_board=MAPPING)
+    second.handle("quote", _quote("HHH"), RECV)
+    second.handle("quote", _quote("UUU"), RECV)
+    assert _flags_of(conn2) == {"HHH": "ATC", "UUU": "LO"}
+
+
+def test_collector_hands_its_mapping_to_the_pipeline(tmp_path):
+    conn = init_db(tmp_path / "t.db")
+    frames = [json.dumps({"channel": "DATA", "topic": "market.FLAG", "data": _flag("HNX", "LO", "2026/11/17 09:00:00")}),
+              json.dumps({"channel": "DATA", "topic": "quote.HHH", "data": _quote("HHH")})]
+    c = Collector(conn, list(MAPPING), authorization=lambda: "Bearer x", connect=lambda url, h: FakeWS(frames),
+                  symbol_board=MAPPING, flush_interval_s=3600, now=lambda: datetime(2026, 11, 17, 9, 30, tzinfo=TZ))
+
+    async def go():
+        stop = asyncio.Event()
+        task = asyncio.create_task(c.run(stop))
+        for _ in range(300):
+            if c.router.counts["quote"] == 1:
+                break
+            await asyncio.sleep(0.01)
+        stop.set()
+        await asyncio.wait_for(task, 3)
+
+    asyncio.run(go())
+    check = sqlite3.connect(tmp_path / "t.db")
+    check.row_factory = sqlite3.Row
+    assert _flags_of(check) == {"HHH": "LO"}
