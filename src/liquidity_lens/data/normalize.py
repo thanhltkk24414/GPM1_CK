@@ -26,7 +26,10 @@ def parse_quote(
     payload: dict, received_at: datetime, price_multiplier: int = config.QUOTE_PRICE_MULTIPLIER
 ) -> BookSnapshot:
     def levels(raw) -> tuple[Level, ...]:
-        return tuple(Level(_price(p, price_multiplier), int(q)) for p, q in raw)
+        # Real frames always carry 10 levels per side and pad the unused ones with ["0", "0"] (observed
+        # 2026-11-17): keep only real levels, so len() is the number of real levels.
+        parsed = ((_price(p, price_multiplier), int(q)) for p, q in raw)
+        return tuple(Level(price, qty) for price, qty in parsed if price != 0 and qty != 0)
 
     return BookSnapshot(
         symbol=payload["s"],

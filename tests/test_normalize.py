@@ -56,3 +56,38 @@ def test_default_multiplier_is_one_and_fractional_dong_is_rejected():
     # fail loudly (it becomes a PARSE_ERROR upstream) instead of silently truncating to 45.
     with pytest.raises(ValueError):
         parse_quote(QUOTE_DOC_ORIGINAL, RECEIVED)
+
+
+def _padded(real_bids, real_asks, total=10):
+    pad = [["0", "0"]] * (total - 0)
+    return {
+        "s": "HPG", "t": "2026/11/17 09:15:00",
+        "bids": (real_bids + pad)[:total], "asks": (real_asks + pad)[:total],
+    }
+
+
+def test_padding_levels_are_dropped():
+    # Shape observed on 2026-11-17: always 10 levels per side, only the first 3 are real, the rest are ["0","0"].
+    p = _padded([["20850", "179700"], ["20800", "280400"], ["20750", "63500"]],
+                [["20950", "3700"], ["21000", "6700"], ["21050", "21700"]])
+    b = parse_quote(p, RECEIVED)
+    assert [lv.price for lv in b.bids] == [20850, 20800, 20750]
+    assert [lv.price for lv in b.asks] == [20950, 21000, 21050]
+    assert len(b.bids) == 3 and len(b.asks) == 3
+
+
+def test_all_padding_side_is_empty():
+    b = parse_quote(_padded([["20850", "100"]], []), RECEIVED)
+    assert len(b.bids) == 1 and b.asks == ()
+
+
+def test_zero_price_or_zero_quantity_levels_are_dropped():
+    p = {"s": "HPG", "t": "2026/11/17 09:15:00", "bids": [["20850", "100"], ["20800", "0"], ["0", "50"]], "asks": []}
+    assert [lv.price for lv in parse_quote(p, RECEIVED).bids] == [20850]
+
+
+def test_one_sided_book_from_padding_gives_none_metrics():
+    from liquidity_lens.finance.metrics import obi, spread_abs
+
+    b = parse_quote(_padded([["20850", "100"]], []), RECEIVED)
+    assert spread_abs(b) is None and obi(b, 3) is None
