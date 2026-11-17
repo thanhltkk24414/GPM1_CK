@@ -8,7 +8,9 @@ from typing import Callable, Sequence
 from liquidity_lens import config
 from liquidity_lens.analytics.alerts import METRICS, detect_alerts, score_bars
 from liquidity_lens.analytics.bars import MinuteBar, to_minute_bars
+from liquidity_lens.analytics.sessions import BoardFlagTimeline
 from liquidity_lens.data.normalize import MarketRef, TradeTick
+from liquidity_lens.data.symbol_board import load_symbol_board  # noqa: F401  (also exported from here)
 from liquidity_lens.finance.orderbook import BookSnapshot, Level
 
 
@@ -31,14 +33,6 @@ def effective_flag(flag: str | None, ts: datetime, board: str | None = "HOSE") -
         if any(start <= t < end for start, end in windows):
             return phase
     return None
-
-
-def load_symbol_board(conn: sqlite3.Connection) -> dict[str, str]:
-    """The symbol -> board mapping saved by the collector (empty for databases from before the mapping existed)."""
-    try:
-        return {r["symbol"]: r["board"] for r in conn.execute("SELECT symbol, board FROM symbol_board")}
-    except sqlite3.OperationalError:  # connection to a database that predates the table
-        return {}
 
 
 def _book_from_row(r: sqlite3.Row) -> BookSnapshot:
@@ -79,12 +73,14 @@ def materialize_metrics(
         sym_args = tuple(symbols)
 
     mapping = load_symbol_board(conn)  # empty: legacy database, every symbol is treated as HOSE
+    timeline = BoardFlagTimeline.load(conn, trading_date)  # flags of each board; book_snapshot.session_flag is NOT used
     books = [
-        (b, effective_flag(r["session_flag"], b.ts, mapping.get(b.symbol) if mapping else "HOSE"))
+        (b, effective_flag(timeline.flag_at(board, r["ts"]), b.ts, board))
         for r in conn.execute(
             f"SELECT * FROM book_snapshot WHERE ts LIKE ?{sym_clause} ORDER BY ts, rowid", (day + "%", *sym_args)
         )
         for b in (_book_from_row(r),)
+        for board in (mapping.get(b.symbol) if mapping else "HOSE",)  # unknown symbol: no board, no flag, no guess
     ]
     trades = [
         TradeTick(r["symbol"], _ts(r["ts"]), r["price"], r["qty"], r["side"], r["total_vol"], _ts(r["received_at"]))
