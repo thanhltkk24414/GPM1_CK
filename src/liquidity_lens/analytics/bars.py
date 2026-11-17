@@ -40,10 +40,13 @@ def to_minute_bars(
     refs: Mapping[str, MarketRef] | None = None,
     tick_for: Callable[[str, int], int] | None = None,
     opening_window: tuple[time, time] | None = OPENING_MATCH_WINDOW,
+    symbol_board: Mapping[str, str] | None = None,
 ) -> list[MinuteBar]:
     """Last usable continuous-session snapshot per (symbol, minute); no forward fill.
 
     Trades inside `opening_window` (the opening auction match) do not add to `volume`; pass None to count them.
+    With `symbol_board` given, that exclusion applies to HOSE symbols only (HNX and UPCOM have no opening auction);
+    without it every symbol is treated as HOSE, as before.
     """
     def tick_of(book: BookSnapshot) -> int | None:
         first = (book.bids or book.asks or (None,))[0]
@@ -63,7 +66,8 @@ def to_minute_bars(
 
     volume: dict[tuple[str, datetime], int] = defaultdict(int)
     for t in trades:
-        if opening_window is not None and opening_window[0] <= t.ts.time() < opening_window[1]:
+        is_hose = symbol_board is None or symbol_board.get(t.symbol) == "HOSE"
+        if is_hose and opening_window is not None and opening_window[0] <= t.ts.time() < opening_window[1]:
             continue  # opening auction match: kept in trade_tick, not part of continuous-trading volume
         volume[(t.symbol, _minute(t.ts))] += t.qty
 

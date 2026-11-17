@@ -146,7 +146,8 @@ def test_build_script_stops_and_writes_nothing_on_a_symbol_in_two_files(tmp_path
 # ------------------------------------------------------------------------------- per-board session flag
 def _quote(symbol, ts="2026/11/17 09:30:00"):
     # DOC SAMPLE structure (docs/ssi/05) with the symbol replaced; prices in dong.
-    return {"s": symbol, "t": ts, "bids": [["20850", "100"], ["20800", "200"], ["20750", "300"]],
+    qty = str(100 + int(ts[11:13]) * 100 + int(ts[14:16]))      # differs between times: identical snapshots are de-duplicated
+    return {"s": symbol, "t": ts, "bids": [["20850", qty], ["20800", "200"], ["20750", "300"]],
             "asks": [["20950", "100"], ["21000", "200"], ["21050", "300"]]}
 
 
@@ -230,3 +231,118 @@ def test_collector_hands_its_mapping_to_the_pipeline(tmp_path):
     check = sqlite3.connect(tmp_path / "t.db")
     check.row_factory = sqlite3.Row
     assert _flags_of(check) == {"HHH": "LO"}
+
+
+# ------------------------------------------------------------------------------- fallback windows per board
+def test_config_windows_per_board_match_the_agreed_schedule():
+    from datetime import time as t
+
+    from liquidity_lens import config
+
+    cont, auc = config.CONTINUOUS_WINDOWS_BY_BOARD, config.AUCTION_WINDOWS_BY_BOARD
+    assert cont["HOSE"] == ((t(9, 15), t(11, 30)), (t(13, 0), t(14, 30))) == config.CONTINUOUS_WINDOWS   # unchanged
+    assert auc["HOSE"] == {"ATO": ((t(9, 0), t(9, 15)),), "ATC": ((t(14, 30), t(14, 45)),)}
+    assert cont["HNX"] == ((t(9, 0), t(11, 30)), (t(13, 0), t(14, 30)))
+    assert auc["HNX"] == {"ATC": ((t(14, 30), t(14, 45)),), "PLO": ((t(14, 45), t(15, 0)),)}       # no ATO
+    assert cont["UPCOM"] == ((t(9, 0), t(11, 30)), (t(13, 0), t(15, 0)))
+    assert auc["UPCOM"] == {}                                                                      # no ATO / ATC
+
+
+@pytest.mark.parametrize("board, hhmm, expected", [
+    ("HOSE", "09:05", "ATO"), ("HOSE", "09:15", "LO"), ("HOSE", "11:29", "LO"), ("HOSE", "11:30", None),
+    ("HOSE", "12:00", None), ("HOSE", "13:00", "LO"), ("HOSE", "14:30", "ATC"), ("HOSE", "14:45", None),
+    ("HNX", "09:00", "LO"), ("HNX", "09:05", "LO"), ("HNX", "11:30", None), ("HNX", "14:29", "LO"),
+    ("HNX", "14:30", "ATC"), ("HNX", "14:45", "PLO"), ("HNX", "15:00", None),
+    ("UPCOM", "09:00", "LO"), ("UPCOM", "14:45", "LO"), ("UPCOM", "14:59", "LO"), ("UPCOM", "15:00", None),
+    ("UPCOM", "08:59", None),
+])
+def test_effective_flag_fallback_by_board(board, hhmm, expected):
+    from liquidity_lens.analytics.materialize import effective_flag
+
+    h, m = map(int, hhmm.split(":"))
+    assert effective_flag(None, datetime(2026, 11, 17, h, m, 0, tzinfo=TZ), board) == expected
+
+
+def test_effective_flag_keeps_a_stored_flag_and_never_guesses_for_an_unknown_board():
+    from liquidity_lens.analytics.materialize import effective_flag
+
+    ts = datetime(2026, 11, 17, 10, 0, tzinfo=TZ)
+    assert effective_flag("BREAK", ts, "HNX") == "BREAK"
+    assert effective_flag(None, ts, None) is None                     # unknown board: no fallback
+    assert effective_flag(None, ts) == "LO"                           # default board stays HOSE (old behaviour)
+
+
+# ------------------------------------------------------------------------------- bars / materialize per board
+def _db(tmp_path, mapping=MAPPING):
+    from liquidity_lens.collector.pipeline import Pipeline
+
+    conn = init_db(tmp_path / "t.db")
+    p = Pipeline(conn, today=DAY, symbol_board=mapping)
+    return conn, p
+
+
+def _at(h, m, s=0):
+    return datetime(2026, 11, 17, h, m, s, 500000, tzinfo=TZ)
+
+
+def _bars(conn):
+    from liquidity_lens.analytics.materialize import materialize_metrics
+
+    materialize_metrics(conn, DAY, window=10, min_periods=5)
+    return {(r["symbol"], r["minute"][11:16]): r["volume"] for r in conn.execute("SELECT symbol, minute, volume FROM metrics_1m")}
+
+
+def _seed_mapping(conn, mapping):
+    conn.executemany("INSERT OR REPLACE INTO symbol_board VALUES (?, ?)", sorted(mapping.items()))
+    conn.commit()
+
+
+def test_materialize_uses_each_boards_fallback_window(tmp_path):
+    conn, p = _db(tmp_path)
+    _seed_mapping(conn, MAPPING)
+    for s in MAPPING:                                    # no session flag was ever received: windows decide
+        p.handle("quote", _quote(s, "2026/11/17 09:05:10"), _at(9, 5, 10))
+        p.handle("quote", _quote(s, "2026/11/17 14:50:10"), _at(14, 50, 10))
+    keys = set(_bars(conn))
+    assert ("HHH", "09:05") in keys and ("UUU", "09:05") in keys            # HNX and UPCOM trade continuously at 09:05
+    assert ("AAA", "09:05") not in keys                                       # HOSE is in ATO at 09:05
+    assert ("UUU", "14:50") in keys                                           # UPCOM continuous until 15:00
+    assert ("HHH", "14:50") not in keys and ("AAA", "14:50") not in keys      # HNX PLO, HOSE closed
+
+
+def test_a_stored_flag_beats_the_fallback_window(tmp_path):
+    conn, p = _db(tmp_path)
+    _seed_mapping(conn, MAPPING)
+    p.handle("market_flag", _flag("HNX", "BREAK", "2026/11/17 09:00:00"), _at(9, 0))
+    p.handle("quote", _quote("HHH", "2026/11/17 09:05:10"), _at(9, 5, 10))     # inside the window but the board says BREAK
+    assert ("HHH", "09:05") not in _bars(conn)
+
+
+def test_opening_match_exclusion_applies_to_hose_only(tmp_path):
+    conn, p = _db(tmp_path)
+    _seed_mapping(conn, MAPPING)
+    for s in ("AAA", "HHH"):
+        p.handle("quote", _quote(s, "2026/11/17 09:15:30"), _at(9, 15, 30))
+        p.handle("trade", {"s": s, "t": "2026/11/17 09:15:00.005", "p": "20850", "q": "1000", "a": "1", "si": "B",
+                           "o": "1", "h": "1", "l": "1", "v": "1000"}, _at(9, 15, 0))
+        p.handle("trade", {"s": s, "t": "2026/11/17 09:15:20", "p": "20850", "q": "50", "a": "1", "si": "B",
+                           "o": "1", "h": "1", "l": "1", "v": "1050"}, _at(9, 15, 20))
+    vol = _bars(conn)
+    assert vol[("AAA", "09:15")] == 50          # HOSE: the 09:15:00.005 opening match is left out
+    assert vol[("HHH", "09:15")] == 1050        # HNX is continuous from 09:00: that trade is a normal trade
+
+
+def test_symbol_not_in_the_mapping_gets_no_bar(tmp_path):
+    conn, p = _db(tmp_path)
+    _seed_mapping(conn, MAPPING)
+    p.handle("quote", _quote("ZZZ", "2026/11/17 10:00:10"), _at(10, 0, 10))
+    p.handle("quote", _quote("AAA", "2026/11/17 10:00:10"), _at(10, 0, 10))
+    keys = set(_bars(conn))
+    assert ("AAA", "10:00") in keys and ("ZZZ", "10:00") not in keys
+
+
+def test_database_without_a_mapping_behaves_as_before(tmp_path):
+    conn, p = _db(tmp_path, mapping=None)                                      # symbol_board stays empty
+    p.handle("quote", _quote("AAA", "2026/11/17 09:05:10"), _at(9, 5, 10))     # HOSE ATO: no bar
+    p.handle("quote", _quote("AAA", "2026/11/17 09:20:10"), _at(9, 20, 10))
+    assert set(_bars(conn)) == {("AAA", "09:20")}

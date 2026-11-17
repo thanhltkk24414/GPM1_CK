@@ -37,3 +37,18 @@ OPENING_MATCH_WINDOW = (time(9, 15, 0), time(9, 15, 1))
 
 # Boards the collector can handle.
 BOARDS = ("HOSE", "HNX", "UPCOM")
+
+
+# Fallback session schedule per board (local time), used only when a snapshot has no session flag.
+# Source: HOSE and HNX trading regulations as looked up by the project owner. NOT observed in SSI data:
+# the flag NAMES of every board other than HOSE "LO" (and "BREAK" at 11:30 on all boards) are [Kiểm tra].
+CONTINUOUS_WINDOWS_BY_BOARD = {
+    "HOSE": CONTINUOUS_WINDOWS,                                    # 09:15-11:30, 13:00-14:30 (unchanged)
+    "HNX": ((time(9, 0), time(11, 30)), (time(13, 0), time(14, 30))),
+    "UPCOM": ((time(9, 0), time(11, 30)), (time(13, 0), time(15, 0))),
+}
+AUCTION_WINDOWS_BY_BOARD = {                                       # phase name -> windows; never continuous
+    "HOSE": {"ATO": ((time(9, 0), time(9, 15)),), "ATC": ((time(14, 30), time(14, 45)),)},
+    "HNX": {"ATC": ((time(14, 30), time(14, 45)),), "PLO": ((time(14, 45), time(15, 0)),)},   # no ATO
+    "UPCOM": {},                                                   # no ATO / ATC
+}

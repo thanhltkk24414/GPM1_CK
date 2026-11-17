@@ -16,14 +16,26 @@ def _ts(s: str) -> datetime:
     return datetime.fromisoformat(s).astimezone(config.TZ)
 
 
-def effective_flag(flag: str | None, ts: datetime) -> str | None:
-    """Session flag as stored; when unknown (None), fall back to config.CONTINUOUS_WINDOWS."""
+def effective_flag(flag: str | None, ts: datetime, board: str | None = "HOSE") -> str | None:
+    """Session flag as stored; when unknown (None), the phase of `board` at that time from the fallback schedule
+    (config.CONTINUOUS_WINDOWS_BY_BOARD, config.AUCTION_WINDOWS_BY_BOARD). board=None means the board is unknown:
+    no fallback, no guess. The default board is HOSE, which keeps the behaviour of databases without a mapping."""
     if flag is not None:
         return flag
+    if board is None:
+        return None
     t = ts.time()
-    if any(start <= t < end for start, end in config.CONTINUOUS_WINDOWS):
+    if any(start <= t < end for start, end in config.CONTINUOUS_WINDOWS_BY_BOARD.get(board, ())):
         return min(config.CONTINUOUS_FLAGS)
+    for phase, windows in config.AUCTION_WINDOWS_BY_BOARD.get(board, {}).items():
+        if any(start <= t < end for start, end in windows):
+            return phase
     return None
+
+
+def load_symbol_board(conn: sqlite3.Connection) -> dict[str, str]:
+    """The symbol -> board mapping saved by the collector (empty for databases from before the mapping existed)."""
+    return {r["symbol"]: r["board"] for r in conn.execute("SELECT symbol, board FROM symbol_board")}
 
 
 def _book_from_row(r: sqlite3.Row) -> BookSnapshot:
@@ -63,8 +75,9 @@ def materialize_metrics(
         sym_clause = f" AND symbol IN ({','.join('?' * len(symbols))})"
         sym_args = tuple(symbols)
 
+    mapping = load_symbol_board(conn)  # empty: legacy database, every symbol is treated as HOSE
     books = [
-        (b, effective_flag(r["session_flag"], b.ts))
+        (b, effective_flag(r["session_flag"], b.ts, mapping.get(b.symbol) if mapping else "HOSE"))
         for r in conn.execute(
             f"SELECT * FROM book_snapshot WHERE ts LIKE ?{sym_clause} ORDER BY ts, rowid", (day + "%", *sym_args)
         )
@@ -81,7 +94,9 @@ def materialize_metrics(
         for r in conn.execute(f"SELECT * FROM market_ref WHERE trading_date = ?{sym_clause}", (day, *sym_args))
     }
 
-    bars: list[MinuteBar] = to_minute_bars(books, trades, refs=refs, tick_for=tick_for)
+    bars: list[MinuteBar] = to_minute_bars(
+        books, trades, refs=refs, tick_for=tick_for, symbol_board=mapping or None
+    )
     scores = score_bars(bars, window=window, min_periods=min_periods)
 
     seen: dict[tuple, deque] = defaultdict(lambda: deque(maxlen=window))
