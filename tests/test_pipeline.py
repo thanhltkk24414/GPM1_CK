@@ -108,3 +108,43 @@ def test_restore_defaults_to_today_in_vn_timezone(tmp_path):
     first = Pipeline(conn)
     first.handle("market_ref", MARKET_REF, RECEIVED)  # 2026-07-29 is long past
     assert Pipeline(conn)._refs == {}
+
+
+def test_session_flag_attached_without_market_ref_using_default_board(tmp_path):
+    # Real feed (2026-11-17): market.<symbol> never arrives, so there is no market_ref; the flag of the default
+    # board (HOSE, watchlist = HOSE symbols only) must still reach the snapshots.
+    from liquidity_lens import config
+
+    assert config.DEFAULT_BOARD == "HOSE"
+    conn = init_db(tmp_path / "t.db")
+    p = Pipeline(conn)
+    p.handle("market_flag", dict(MARKET_FLAG, f="LO"), RECEIVED)
+    p.handle("quote", QUOTE, RECEIVED)
+    assert conn.execute("SELECT session_flag FROM book_snapshot").fetchone()[0] == "LO"
+
+
+def test_other_board_flags_do_not_leak_into_hose_symbols(tmp_path):
+    conn = init_db(tmp_path / "t.db")
+    p = Pipeline(conn)
+    p.handle("market_flag", dict(MARKET_FLAG, b="HNX", f="ATC"), RECEIVED)
+    p.handle("quote", QUOTE, RECEIVED)
+    assert conn.execute("SELECT session_flag FROM book_snapshot").fetchone()[0] is None
+
+
+def test_out_of_band_check_skipped_without_market_ref(tmp_path):
+    conn = init_db(tmp_path / "t.db")
+    p = Pipeline(conn)
+    wild = copy.deepcopy(QUOTE)
+    wild["asks"][0][0] = "999999"          # absurd price, but there is no ceiling to compare with
+    p.handle("quote", wild, RECEIVED)
+    assert "OUT_OF_BAND" not in conn.execute("SELECT flags FROM book_snapshot").fetchone()[0]
+
+
+def test_restore_session_flag_without_market_ref(tmp_path):
+    path = tmp_path / "t.db"
+    first = Pipeline(init_db(path))
+    first.handle("market_flag", dict(MARKET_FLAG, t="2026/07/29 09:15:00", f="LO"), RECEIVED)
+    conn2 = init_db(path)
+    second = Pipeline(conn2, today=date(2026, 7, 29))
+    second.handle("quote", QUOTE, RECEIVED)
+    assert conn2.execute("SELECT session_flag FROM book_snapshot").fetchone()[0] == "LO"

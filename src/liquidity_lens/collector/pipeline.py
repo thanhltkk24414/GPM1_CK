@@ -51,7 +51,9 @@ class Pipeline:
         self._restore_state(today or datetime.now(config.TZ).date())
 
     def _restore_state(self, today: date) -> None:
-        """Reload today's market_ref and each board's latest session flag (Asia/Ho_Chi_Minh date).
+        """Reload today's market_ref (if any) and each board's latest session flag (Asia/Ho_Chi_Minh date).
+
+        Session flags are only sent when they change, so they must survive a restart even without market_ref.
 
         Data from earlier days is never restored: yesterday's price band or session flag must not
         be applied to today's snapshots.
@@ -61,8 +63,6 @@ class Pipeline:
             "SELECT symbol, board, ceiling, floor, ref FROM market_ref WHERE trading_date = ?", (day,)
         ):
             self._refs[r["symbol"]] = MarketRef(r["symbol"], r["board"], today, r["ceiling"], r["floor"], r["ref"])
-        if not self._refs:
-            return
         for r in self.conn.execute(
             "SELECT board, flag FROM session_flag WHERE ts >= ? ORDER BY ts, rowid", (day,)
         ):
@@ -128,7 +128,8 @@ class Pipeline:
         first = (book.bids or book.asks or (None,))[0]
         tick = self.tick_for(book.symbol, first.price) if self.tick_for and first else None
         flags = quality_flags(book, ref=ref, tick=tick)
-        session_flag = self._board_flag.get(ref.board) if ref else None
+        board = ref.board if ref else config.DEFAULT_BOARD  # no market_ref on the real feed: HOSE watchlist
+        session_flag = self._board_flag.get(board)
 
         row: dict = {
             "symbol": book.symbol,

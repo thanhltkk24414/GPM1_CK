@@ -15,6 +15,7 @@ def data_quality_report(
 
     - snapshots_by_session_flag: book_snapshot counts per session flag (None = flag unknown).
     - parse_errors: number of PARSE_ERROR rows in collector_events.
+    - snapshots_without_ref: snapshots of symbols that have no market_ref for the day (OUT_OF_BAND is skipped for them).
     - zero_std_ratio: {symbol: {metric: share of evaluated z-score windows with std == 0}}, rebuilt
       from metrics_1m with the same rule as rolling_zscore (prior non-None values, same symbol and
       AM/PM group). Metrics with no evaluated window are omitted.
@@ -50,4 +51,12 @@ def data_quality_report(
         sym: {m: zero[sym][m] / n for m, n in per.items() if n}
         for sym, per in evaluated.items()
     }
-    return {"snapshots_by_session_flag": by_flag, "parse_errors": parse_errors, "zero_std_ratio": ratio}
+    without_ref = conn.execute(
+        "SELECT COUNT(*) FROM book_snapshot b WHERE b.ts LIKE ? AND NOT EXISTS "
+        "(SELECT 1 FROM market_ref m WHERE m.symbol = b.symbol AND m.trading_date = ?)",
+        (day, trading_date.isoformat()),
+    ).fetchone()[0]
+    return {
+        "snapshots_by_session_flag": by_flag, "parse_errors": parse_errors, "zero_std_ratio": ratio,
+        "snapshots_without_ref": without_ref,
+    }

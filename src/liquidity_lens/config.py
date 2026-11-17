@@ -24,3 +24,7 @@ CONTINUOUS_WINDOWS = (
 
 # Default watchlist for the collector. [Kiểm tra] HOSE symbols only: the fallback session windows are HOSE's.
 DEFAULT_WATCHLIST = ("VIC", "HPG", "FPT")
+
+# Board assumed for a watchlist symbol that has no market_ref. The real feed never sends market.<symbol>
+# (observed 2026-11-17), so there is no per-symbol board; the watchlist is HOSE-only, which makes this safe.
+DEFAULT_BOARD = "HOSE"

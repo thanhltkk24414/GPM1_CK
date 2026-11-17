@@ -101,4 +101,20 @@ def test_data_quality_report_empty_day(tmp_path):
 
     conn = init_db(tmp_path / "t.db")
     rep = data_quality_report(conn, DAY)
-    assert rep == {"snapshots_by_session_flag": {}, "parse_errors": 0, "zero_std_ratio": {}}
+    assert rep == {"snapshots_by_session_flag": {}, "parse_errors": 0, "zero_std_ratio": {}, "snapshots_without_ref": 0}
+
+
+def test_report_counts_snapshots_without_market_ref(tmp_path):
+    from liquidity_lens.data.report import data_quality_report
+
+    conn = init_db(tmp_path / "t.db")
+    p = Pipeline(conn, today=DAY)
+    p.handle("market_ref", MARKET_REF, _recv(9, 0, 0))                       # SSI has a reference
+    p.handle("quote", _quote(9, 20, 10, 3000), _recv(9, 20, 10))             # SSI: with ref
+    other = _quote(9, 21, 10, 3000)
+    other["s"] = "HPG"
+    p.handle("quote", other, _recv(9, 21, 10))                               # HPG: no market_ref
+    p.handle("quote", dict(other, t="2026/07/29 09:22:10"), _recv(9, 22, 10))
+    rep = data_quality_report(conn, DAY)
+    assert rep["snapshots_without_ref"] == conn.execute(
+        "SELECT COUNT(*) FROM book_snapshot WHERE symbol='HPG'").fetchone()[0]
