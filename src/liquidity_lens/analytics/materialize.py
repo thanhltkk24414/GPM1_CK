@@ -8,7 +8,7 @@ from typing import Callable, Sequence
 from liquidity_lens import config
 from liquidity_lens.analytics.alerts import METRICS, detect_alerts, score_bars
 from liquidity_lens.analytics.bars import MinuteBar, to_minute_bars
-from liquidity_lens.analytics.sessions import BoardFlagTimeline
+from liquidity_lens.analytics.sessions import BoardFlagTimeline, fallback_phase
 from liquidity_lens.data.normalize import MarketRef, TradeTick
 from liquidity_lens.data.symbol_board import load_symbol_board  # noqa: F401  (also exported from here)
 from liquidity_lens.finance.orderbook import BookSnapshot, Level
@@ -24,15 +24,7 @@ def effective_flag(flag: str | None, ts: datetime, board: str | None = "HOSE") -
     no fallback, no guess. The default board is HOSE, which keeps the behaviour of databases without a mapping."""
     if flag is not None:
         return flag
-    if board is None:
-        return None
-    t = ts.time()
-    if any(start <= t < end for start, end in config.CONTINUOUS_WINDOWS_BY_BOARD.get(board, ())):
-        return min(config.CONTINUOUS_FLAGS)
-    for phase, windows in config.AUCTION_WINDOWS_BY_BOARD.get(board, {}).items():
-        if any(start <= t < end for start, end in windows):
-            return phase
-    return None
+    return fallback_phase(board, ts.time())
 
 
 def _book_from_row(r: sqlite3.Row) -> BookSnapshot:

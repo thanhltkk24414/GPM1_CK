@@ -8,8 +8,10 @@ from __future__ import annotations
 import sqlite3
 from bisect import bisect_right
 from collections import defaultdict
-from datetime import date
+from datetime import date, time
 from typing import Iterable
+
+from liquidity_lens import config
 
 
 class BoardFlagTimeline:
@@ -42,3 +44,17 @@ class BoardFlagTimeline:
             return None
         i = bisect_right(self._ts[board], ts_iso) - 1
         return self._flag[board][i] if i >= 0 else None
+
+
+def fallback_phase(board: str | None, t: time) -> str | None:
+    """Phase of `board` at local time `t` from the fallback schedule (config.CONTINUOUS_WINDOWS_BY_BOARD and
+    config.AUCTION_WINDOWS_BY_BOARD): the continuous flag name, an auction name (ATO, ATC, PLO), or None. An unknown board
+    (None) gets nothing: no guess."""
+    if board is None:
+        return None
+    if any(start <= t < end for start, end in config.CONTINUOUS_WINDOWS_BY_BOARD.get(board, ())):
+        return min(config.CONTINUOUS_FLAGS)
+    for phase, windows in config.AUCTION_WINDOWS_BY_BOARD.get(board, {}).items():
+        if any(start <= t < end for start, end in windows):
+            return phase
+    return None
