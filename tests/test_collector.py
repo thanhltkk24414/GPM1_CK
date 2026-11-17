@@ -143,3 +143,35 @@ def test_silence_warning_only_in_trading_hours():
     assert is_trading_time(datetime(2026, 11, 17, 10, 0, tzinfo=TZ)) is True      # Tuesday morning
     assert is_trading_time(datetime(2026, 11, 17, 12, 0, tzinfo=TZ)) is False     # lunch break
     assert is_trading_time(datetime(2026, 11, 15, 10, 0, tzinfo=TZ)) is False     # Sunday
+
+
+VN30_EXPECTED = ("ACB BID BSR BVH CTG FPT GAS GVR HDB HPG MBB MSN MWG PLX POW SAB SSB SSI STB TCB TPB VCB VHM VIB VIC VJC "
+                 "VNM VPB VPL VRE").split()
+
+
+def test_repo_watchlist_file_has_the_30_vn30_symbols():
+    root = __import__("pathlib").Path(__file__).resolve().parents[1]
+    symbols = load_watchlist(root / "watchlist.txt")
+    assert symbols == VN30_EXPECTED and len(symbols) == 30
+    assert len(build_topics(symbols)) == 91
+
+
+def test_resolve_watchlist_defaults_to_three_symbols_without_symbols_option():
+    from liquidity_lens import config
+    from liquidity_lens.collector.main import resolve_watchlist
+
+    assert resolve_watchlist(None) == ["VIC", "HPG", "FPT"] == list(config.DEFAULT_WATCHLIST)
+    root = __import__("pathlib").Path(__file__).resolve().parents[1]
+    assert resolve_watchlist(str(root / "watchlist.txt")) == VN30_EXPECTED
+
+
+def test_each_subscribe_frame_gets_its_own_server_response_event(tmp_path):
+    acks = [json.dumps({"method": "SUBSCRIBE", "channel": "DATA", "status": "ok",
+                        "message": f"Subscribed to {n} topic(s)"}) for n in (20, 20, 20, 20, 11)]
+    path, conn, c = _make(tmp_path, acks, flush_interval_s=3600)
+    asyncio.run(_run_until(c, lambda: conn.execute(
+        "SELECT COUNT(*) FROM collector_events WHERE event='SUBSCRIBE_ACK'").fetchone()[0] == 5))
+    rows = [json.loads(r[0]) for r in sqlite3.connect(path).execute(
+        "SELECT detail FROM collector_events WHERE event='SUBSCRIBE_ACK' ORDER BY id")]
+    assert [r["message"] for r in rows] == [f"Subscribed to {n} topic(s)" for n in (20, 20, 20, 20, 11)]
+    assert all(r["status"] == "ok" for r in rows)

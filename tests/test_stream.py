@@ -215,3 +215,65 @@ def test_stop_event_ends_run_cleanly():
     h = Harness([FakeWS([])])
     asyncio.run(h.run(lambda: "SUBSCRIBE_SENT" in h.names()))
     assert "DISCONNECT" not in h.names() and h.names()[-1] == "STOPPED"
+
+
+# ----------------------------------------------------------------------------- chunked SUBSCRIBE
+VN30 = ("ACB BID BSR BVH CTG FPT GAS GVR HDB HPG MBB MSN MWG PLX POW SAB SSB SSI STB TCB TPB VCB VHM VIB VIC VJC "
+        "VNM VPB VPL VRE").split()
+
+
+def _topics_for(symbols):
+    return [f"{k}.{s}" for s in symbols for k in ("quote", "trade", "market")] + ["market.flag"]
+
+
+def test_subscribe_frames_split_30_symbols_into_frames_of_at_most_20_topics():
+    from liquidity_lens.ssi.stream import MAX_FRAME_BYTES, MAX_TOPICS_PER_FRAME, build_subscribe_frames
+
+    topics = _topics_for(VN30)
+    assert len(topics) == 91
+    frames = build_subscribe_frames(topics)
+    assert [len(f["topics"]) for f in frames] == [20, 20, 20, 20, 11]
+    assert all(f["method"] == "SUBSCRIBE" and f["channel"] == "DATA" for f in frames)
+    assert all(len(json.dumps(f).encode()) < MAX_FRAME_BYTES == 4000 for f in frames)
+    assert MAX_TOPICS_PER_FRAME == 20
+    assert [t for f in frames for t in f["topics"]] == topics          # nothing lost, nothing reordered
+
+
+def test_subscribe_frames_also_split_by_size():
+    from liquidity_lens.ssi.stream import build_subscribe_frames
+
+    long_topics = [f"quote.{'X' * 400}{i}" for i in range(20)]          # 20 topics but ~8 KB together
+    frames = build_subscribe_frames(long_topics)
+    assert len(frames) > 1
+    assert all(len(json.dumps(f).encode()) < 4000 and len(f["topics"]) <= 20 for f in frames)
+    assert [t for f in frames for t in f["topics"]] == long_topics
+
+
+def test_subscribe_frames_reject_unusable_input():
+    from liquidity_lens.ssi.stream import build_subscribe_frames
+
+    with pytest.raises(ValueError):
+        build_subscribe_frames([])
+    with pytest.raises(ValueError):
+        build_subscribe_frames(["order.1"])
+    with pytest.raises(ValueError):
+        build_subscribe_frames(["quote." + "X" * 5000])               # one topic alone exceeds the limit
+
+
+def test_stream_sends_every_frame_and_logs_each_one_and_resubscribes_after_reconnect():
+    import liquidity_lens.ssi.stream as stream_mod
+
+    topics = _topics_for(VN30)
+    ws1 = FakeWS([json.dumps(QUOTE), _closed()])
+    ws2 = FakeWS([json.dumps(QUOTE)])
+    h = Harness([ws1, ws2])
+    h.client.topics = topics
+    asyncio.run(h.run(lambda: len(h.frames) == 2))
+    expected = stream_mod.build_subscribe_frames(topics)
+    assert ws1.sent[:5] == expected and ws2.sent[:5] == expected
+    sent_events = [json.loads(d) for e, d in h.events if e == "SUBSCRIBE_SENT"]
+    assert len(sent_events) == 10                                      # 5 frames x 2 connections
+    first = sent_events[:5]
+    assert [x["frame"] for x in first] == [1, 2, 3, 4, 5] and all(x["frames"] == 5 for x in first)
+    assert [x["topics"] for x in first] == [20, 20, 20, 20, 11]
+    assert all(0 < x["bytes"] < 4000 for x in first)

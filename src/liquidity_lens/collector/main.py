@@ -48,6 +48,11 @@ def load_watchlist(path: str | Path) -> list[str]:
     return out
 
 
+def resolve_watchlist(path: str | Path | None) -> list[str]:
+    """--symbols FILE when given, otherwise config.DEFAULT_WATCHLIST (VIC, HPG, FPT)."""
+    return load_watchlist(path) if path else list(config.DEFAULT_WATCHLIST)
+
+
 def build_topics(symbols: Sequence[str]) -> list[str]:
     return [f"{kind}.{s}" for s in symbols for kind in ("quote", "trade", "market")] + ["market.flag"]
 
@@ -154,7 +159,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if missing:
         print(f"ERROR: missing environment variable(s): {', '.join(missing)} (see .env.example)", file=sys.stderr)
         return 2
-    symbols = load_watchlist(args.symbols) if args.symbols else list(config.DEFAULT_WATCHLIST)
+    symbols = resolve_watchlist(args.symbols)
 
     conn = init_db(args.db)
     prepare_connection(conn)

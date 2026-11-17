@@ -40,6 +40,34 @@ def build_subscribe(topics: Sequence[str]) -> dict:
     return {"method": "SUBSCRIBE", "channel": "DATA", "topics": _check_topics(topics)}
 
 
+MAX_TOPICS_PER_FRAME = 20
+MAX_FRAME_BYTES = 4000  # frames must stay below this (the SDK documents a 4096-byte limit and keeps 4000)
+
+
+def _frame_bytes(frame: dict) -> int:
+    return len(json.dumps(frame).encode("utf-8"))
+
+
+def build_subscribe_frames(
+    topics: Sequence[str], max_topics: int = MAX_TOPICS_PER_FRAME, max_bytes: int = MAX_FRAME_BYTES
+) -> list[dict]:
+    """Split a SUBSCRIBE into several frames of at most `max_topics` topics and fewer than `max_bytes` bytes,
+    keeping the topic order. A watchlist of 30 symbols is 91 topics, far too many for one frame."""
+    topics = _check_topics(topics)
+    frames: list[dict] = []
+    current: list[str] = []
+    for topic in topics:
+        if _frame_bytes(build_subscribe([topic])) >= max_bytes:
+            raise ValueError(f"topic is too long for one SUBSCRIBE frame ({len(topic)} characters)")
+        candidate = current + [topic]
+        if current and (len(candidate) > max_topics or _frame_bytes(build_subscribe(candidate)) >= max_bytes):
+            frames.append(build_subscribe(current))
+            candidate = [topic]
+        current = candidate
+    frames.append(build_subscribe(current))
+    return frames
+
+
 def build_unsubscribe(topics: Sequence[str]) -> dict:
     return {"method": "UNSUBSCRIBE", "channel": "DATA", "topics": _check_topics(topics)}
 
@@ -131,8 +159,14 @@ class StreamClient:
                 async with self._connect(self.url, headers) as ws:
                     connected = True
                     self._emit("CONNECT", self.url)
-                    await ws.send(json.dumps(build_subscribe(self.topics)))
-                    self._emit("SUBSCRIBE_SENT", json.dumps(self.topics))
+                    frames = build_subscribe_frames(self.topics)  # again after every reconnect
+                    for i, frame in enumerate(frames, 1):
+                        text = json.dumps(frame)
+                        await ws.send(text)
+                        self._emit("SUBSCRIBE_SENT", json.dumps({
+                            "frame": i, "frames": len(frames), "topics": len(frame["topics"]),
+                            "bytes": len(text.encode("utf-8")),
+                        }))
                     await self._listen(ws)
             except ConnectionClosed as e:
                 code = e.rcvd.code if e.rcvd else None
