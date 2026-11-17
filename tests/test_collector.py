@@ -145,14 +145,14 @@ def test_silence_warning_only_in_trading_hours():
     assert is_trading_time(datetime(2026, 11, 15, 10, 0, tzinfo=TZ)) is False     # Sunday
 
 
-VN30_EXPECTED = ("ACB BID BSR BVH CTG FPT GAS GVR HDB HPG MBB MSN MWG PLX POW SAB SSB SSI STB TCB TPB VCB VHM VIB VIC VJC "
-                 "VNM VPB VPL VRE").split()
+WATCHLIST_EXPECTED = ("ACB BID BSR CTG FPT GAS GVR HDB HPG LPB MBB MCH MSN MWG SAB SHB SSB SSI STB TCB "
+                      "TCX VCB VHM VIB VIC VJC VNM VPB VPL VRE").split()  # HOSE price board, 2026-11-17
 
 
-def test_repo_watchlist_file_has_the_30_vn30_symbols():
+def test_repo_watchlist_file_has_the_30_symbols():
     root = __import__("pathlib").Path(__file__).resolve().parents[1]
     symbols = load_watchlist(root / "watchlist.txt")
-    assert symbols == VN30_EXPECTED and len(symbols) == 30
+    assert symbols == WATCHLIST_EXPECTED and len(symbols) == 30
     assert len(build_topics(symbols)) == 91
 
 
@@ -162,7 +162,7 @@ def test_resolve_watchlist_defaults_to_three_symbols_without_symbols_option():
 
     assert resolve_watchlist(None) == ["VIC", "HPG", "FPT"] == list(config.DEFAULT_WATCHLIST)
     root = __import__("pathlib").Path(__file__).resolve().parents[1]
-    assert resolve_watchlist(str(root / "watchlist.txt")) == VN30_EXPECTED
+    assert resolve_watchlist(str(root / "watchlist.txt")) == WATCHLIST_EXPECTED
 
 
 def test_each_subscribe_frame_gets_its_own_server_response_event(tmp_path):

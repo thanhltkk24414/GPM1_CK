@@ -1,25 +1,25 @@
-# VN30, one symbol per line, HOSE only. [Kiểm tra] board of each symbol is not verified from SSI data.
+# 30 HOSE symbols from the HOSE price board of 2026-11-17 (given by the project owner), one per line.
 ACB
 BID
 BSR
-BVH
 CTG
 FPT
 GAS
 GVR
 HDB
 HPG
+LPB
 MBB
+MCH
 MSN
 MWG
-PLX
-POW
 SAB
+SHB
 SSB
 SSI
 STB
 TCB
-TPB
+TCX
 VCB
 VHM
 VIB
