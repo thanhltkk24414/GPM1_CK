@@ -102,7 +102,7 @@ def test_data_quality_report_empty_day(tmp_path):
     conn = init_db(tmp_path / "t.db")
     rep = data_quality_report(conn, DAY)
     assert rep == {"snapshots_by_session_flag": {}, "parse_errors": 0, "zero_std_ratio": {}, "snapshots_without_ref": 0,
-                   "excluded_opening_trades": {}}
+                   "excluded_opening_trades": {}, "unknown_frames": 0}
 
 
 def test_report_counts_snapshots_without_market_ref(tmp_path):
