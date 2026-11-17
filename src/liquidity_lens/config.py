@@ -28,3 +28,9 @@ DEFAULT_WATCHLIST = ("VIC", "HPG", "FPT")
 # Board assumed for a watchlist symbol that has no market_ref. The real feed never sends market.<symbol>
 # (observed 2026-11-17), so there is no per-symbol board; the watchlist is HOSE-only, which makes this safe.
 DEFAULT_BOARD = "HOSE"
+
+# Opening-auction match window: trades stamped inside [start, end) are the ATO match, not continuous trading.
+# They stay in trade_tick but are excluded from the volume of a minute bar. Real data 2026-11-17: the match was
+# stamped 09:15:00.005 for VIC, HPG, FPT, and the first continuous trades came at 09:15:01.649 or later.
+# [Kiểm tra] HOSE only; one HPG trade at 09:15:00.438 (opening price) cannot be classified. Re-check per board.
+OPENING_MATCH_WINDOW = (time(9, 15, 0), time(9, 15, 1))

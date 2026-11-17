@@ -5,6 +5,8 @@ import statistics
 from collections import defaultdict, deque
 from datetime import date
 
+from liquidity_lens import config
+
 METRICS = ("obi3", "spread_bps", "volume")
 
 
@@ -15,6 +17,8 @@ def data_quality_report(
 
     - snapshots_by_session_flag: book_snapshot counts per session flag (None = flag unknown).
     - parse_errors: number of PARSE_ERROR rows in collector_events.
+    - excluded_opening_trades: {symbol: {trades, volume}} of trades inside config.OPENING_MATCH_WINDOW, kept in trade_tick
+      but left out of minute-bar volume.
     - snapshots_without_ref: snapshots of symbols that have no market_ref for the day (OUT_OF_BAND is skipped for them).
     - zero_std_ratio: {symbol: {metric: share of evaluated z-score windows with std == 0}}, rebuilt
       from metrics_1m with the same rule as rolling_zscore (prior non-None values, same symbol and
@@ -56,7 +60,16 @@ def data_quality_report(
         "(SELECT 1 FROM market_ref m WHERE m.symbol = b.symbol AND m.trading_date = ?)",
         (day, trading_date.isoformat()),
     ).fetchone()[0]
+    start, end = config.OPENING_MATCH_WINDOW
+    excluded = {
+        r["symbol"]: {"trades": r["n"], "volume": r["q"]}
+        for r in conn.execute(
+            "SELECT symbol, COUNT(*) AS n, SUM(qty) AS q FROM trade_tick WHERE ts LIKE ? "
+            "AND substr(ts, 12, 8) >= ? AND substr(ts, 12, 8) < ? GROUP BY symbol",
+            (day, start.strftime("%H:%M:%S"), end.strftime("%H:%M:%S")),
+        )
+    }
     return {
         "snapshots_by_session_flag": by_flag, "parse_errors": parse_errors, "zero_std_ratio": ratio,
-        "snapshots_without_ref": without_ref,
+        "snapshots_without_ref": without_ref, "excluded_opening_trades": excluded,
     }

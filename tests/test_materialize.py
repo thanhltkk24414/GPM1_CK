@@ -5,7 +5,7 @@ from liquidity_lens import config
 from liquidity_lens.analytics.materialize import materialize_metrics
 from liquidity_lens.collector.pipeline import Pipeline
 from liquidity_lens.data.store import init_db
-from tests.fixtures.ssi_doc_samples import MARKET_FLAG, MARKET_REF, QUOTE, TZ
+from tests.fixtures.ssi_doc_samples import MARKET_FLAG, MARKET_REF, QUOTE, TRADE, TZ
 
 DAY = date(2026, 7, 29)
 
@@ -101,7 +101,8 @@ def test_data_quality_report_empty_day(tmp_path):
 
     conn = init_db(tmp_path / "t.db")
     rep = data_quality_report(conn, DAY)
-    assert rep == {"snapshots_by_session_flag": {}, "parse_errors": 0, "zero_std_ratio": {}, "snapshots_without_ref": 0}
+    assert rep == {"snapshots_by_session_flag": {}, "parse_errors": 0, "zero_std_ratio": {}, "snapshots_without_ref": 0,
+                   "excluded_opening_trades": {}}
 
 
 def test_report_counts_snapshots_without_market_ref(tmp_path):
@@ -118,3 +119,35 @@ def test_report_counts_snapshots_without_market_ref(tmp_path):
     rep = data_quality_report(conn, DAY)
     assert rep["snapshots_without_ref"] == conn.execute(
         "SELECT COUNT(*) FROM book_snapshot WHERE symbol='HPG'").fetchone()[0]
+
+
+def _db_with_opening_trades(tmp_path):
+    conn = _db_with_series(tmp_path)
+    p = Pipeline(conn, today=DAY)
+    def trade(s, t, q, sym="SSI"):
+        d = dict(TRADE, s=sym, t=t, q=str(q), p="45500")
+        return d
+    p.handle("trade", trade("SSI", "2026/07/29 09:20:00.005", 1000), _recv(9, 20, 0))   # window is 09:15:00 only
+    p.handle("trade", trade("SSI", "2026/07/29 09:15:00.005", 1000), _recv(9, 15, 0))
+    p.handle("trade", trade("SSI", "2026/07/29 09:15:00.438", 100), _recv(9, 15, 0))
+    p.handle("trade", trade("SSI", "2026/07/29 09:15:00.005", 500, "HPG"), _recv(9, 15, 0))
+    p.handle("trade", trade("SSI", "2026/07/29 09:20:30", 20), _recv(9, 20, 30))
+    conn.commit()
+    return conn
+
+
+def test_materialize_excludes_opening_trades_but_trade_tick_keeps_them(tmp_path):
+    conn = _db_with_opening_trades(tmp_path)
+    assert _count(conn, "trade_tick") == 5
+    materialize_metrics(conn, DAY, window=10, min_periods=5)
+    vol = {r["minute"][11:16]: r["volume"] for r in conn.execute("SELECT minute, volume FROM metrics_1m WHERE symbol='SSI'")}
+    assert vol["09:20"] == 1020              # 1000 + 20: the 09:20:00.005 trade is outside the opening window
+    assert "09:15" not in vol                 # no usable snapshot at 09:15, so no bar (volume never leaks elsewhere)
+
+
+def test_report_lists_excluded_opening_trades_per_symbol(tmp_path):
+    from liquidity_lens.data.report import data_quality_report
+
+    conn = _db_with_opening_trades(tmp_path)
+    rep = data_quality_report(conn, DAY)
+    assert rep["excluded_opening_trades"] == {"SSI": {"trades": 2, "volume": 1100}, "HPG": {"trades": 1, "volume": 500}}

@@ -67,3 +67,29 @@ def test_tick_for_flags_off_tick_is_not_fatal_but_used():
 
     bars = to_minute_bars([(_at(9, 15, 30), "LO")], [], tick_for=tick_for)
     assert seen and bars[0].spread_ticks == 1.0
+
+
+def _tick(h, m, s, us, qty, symbol="SSI"):
+    ts = datetime(2026, 7, 29, h, m, s, us, tzinfo=TZ)
+    return TradeTick(symbol, ts, 45500, qty, "B", 0, ts)
+
+
+def test_opening_match_trades_are_excluded_from_volume():
+    # Real data (2026-11-17): the opening auction match is stamped 09:15:00.005; continuous trading starts after.
+    trades = [
+        _tick(9, 14, 59, 999000, 7),     # before the window: counted (belongs to the 09:14 minute, no bar anyway)
+        _tick(9, 15, 0, 5000, 1000),     # opening match: excluded
+        _tick(9, 15, 0, 438000, 100),    # still inside [09:15:00, 09:15:01): excluded
+        _tick(9, 15, 0, 999999, 10),     # last microsecond of the window: excluded
+        _tick(9, 15, 1, 0, 50),          # first instant after the window: counted
+        _tick(9, 15, 30, 0, 25),
+    ]
+    bars = to_minute_bars([(_at(9, 15, 40), "LO")], trades)
+    assert bars[0].volume == 75
+
+
+def test_opening_window_can_be_disabled_and_applies_only_to_that_window():
+    trades = [_tick(9, 15, 0, 5000, 1000), _tick(13, 0, 0, 5000, 40)]
+    assert to_minute_bars([(_at(9, 15, 40), "LO")], trades, opening_window=None)[0].volume == 1000
+    # 13:00:00 has no opening auction on HOSE: a trade in that second is NOT excluded
+    assert to_minute_bars([(_at(13, 0, 30), "LO")], trades)[0].volume == 40
