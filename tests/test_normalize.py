@@ -91,3 +91,14 @@ def test_one_sided_book_from_padding_gives_none_metrics():
 
     b = parse_quote(_padded([["20850", "100"]], []), RECEIVED)
     assert spread_abs(b) is None and obi(b, 3) is None
+
+
+def test_trade_time_with_milliseconds():
+    # Observed 2026-11-17: trade.t has milliseconds ("09:15:00.005"), quote.t does not.
+    from liquidity_lens.data.normalize import parse_vn_time
+
+    t = parse_vn_time("2026/11/17 09:15:00.005")
+    assert (t.second, t.microsecond) == (0, 5000) and t.utcoffset().total_seconds() == 7 * 3600
+    assert parse_vn_time("2026/11/17 09:15:00").microsecond == 0
+    trade = dict(TRADE, t="2026/11/17 09:15:00.005")
+    assert parse_trade(trade, RECEIVED).ts.microsecond == 5000

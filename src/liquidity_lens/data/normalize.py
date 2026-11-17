@@ -10,8 +10,9 @@ from liquidity_lens.finance.orderbook import BookSnapshot, Level
 
 
 def parse_vn_time(s: str) -> datetime:
-    """Parse 'YYYY/MM/DD HH:mm:ss' as Asia/Ho_Chi_Minh local time."""
-    return datetime.strptime(s, "%Y/%m/%d %H:%M:%S").replace(tzinfo=config.TZ)
+    """Parse 'YYYY/MM/DD HH:mm:ss' (optionally '.fff' milliseconds, seen on trade frames) as Asia/Ho_Chi_Minh."""
+    fmt = "%Y/%m/%d %H:%M:%S.%f" if "." in s else "%Y/%m/%d %H:%M:%S"
+    return datetime.strptime(s, fmt).replace(tzinfo=config.TZ)
 
 
 def _price(s: str, multiplier: int) -> int:
