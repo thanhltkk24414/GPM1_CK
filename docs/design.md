@@ -58,25 +58,28 @@ Quy ước: **[Xác nhận]** = có trong tài liệu SSI đã đọc; **[Giả 
 
 **Quy tắc làm việc (từ 2026-11-17): không sửa collector/pipeline trước phiên 18/11.** Collector và Pipeline giữ nguyên bản đã chạy ổn. Mọi xử lý theo sàn nằm ở **lớp phân tích** (materialize, bars, báo cáo) và đọc dữ liệu đã thu. Bản collector biết sàn (nạp CSV, ghi `symbol_board`, gắn cờ theo sàn ngay lúc thu) được giữ ở nhánh `feature/board-aware-collector`, chưa nằm trong `main`.
 
-**Quan sát thật 2026-11-17 (CSDL thu `rehearsal_20261117.db`, collector chạy từ 09:55):**
-- **[Xác nhận bằng thực nghiệm 2026-11-17]** `market.FLAG` gửi cờ của cả bốn sàn (`HOSE`, `HNX`, `UPCOM`, `DER`) và chỉ khi đổi trạng thái. Các giá trị cờ đã thấy: **`BREAK`, `LO`, `ATC`, `C`**:
+**Quan sát thật 2026-11-17 và 2026-11-18 (CSDL thu của hai ngày; 17/11 collector chạy từ 09:55, 18/11 từ 08:48):**
+- **[Xác nhận bằng thực nghiệm 2026-11-17 và 2026-11-18]** `market.FLAG` gửi cờ của cả bốn sàn (`HOSE`, `HNX`, `UPCOM`, `DER`) và chỉ khi đổi trạng thái. Các giá trị cờ đã thấy: **`ATO`, `LO`, `BREAK`, `ATC`, `C`**. Giờ trong bảng là thời điểm `t` của thông điệp cờ (giờ Việt Nam):
 
 | Cờ | HOSE | HNX | UPCOM | DER |
 |---|---|---|---|---|
-| `BREAK` (nghỉ trưa) | 11:30:00 | 11:30:00 | 11:30:00 | 11:30:00 |
-| `LO` (liên tục) | 13:00:00 | 13:00:00 | 13:00:00 | 13:00:00 |
+| `ATO` | 18/11 09:00:02 | không có | không có | không thấy |
+| `LO` (liên tục, buổi sáng) | 18/11 09:15:00 | 18/11 09:00:00 | 18/11 09:00:05 | 18/11 09:00:05 |
+| `BREAK` (nghỉ trưa) | 17/11 và 18/11 11:30:00 | 17/11 và 18/11 11:30:00 | 17/11 11:30:00; 18/11 **11:30:01** | 11:30:00 |
+| `LO` (liên tục, buổi chiều) | 13:00:00 | 13:00:00 | 17/11 13:00:00; 18/11 **13:00:01** | 13:00:00 |
 | `ATC` | 14:30:00 | 14:30:00 | không có | 14:30:00 |
-| `C` (đóng cửa) | 14:45:01 | 14:45:00 đến 14:45:01 | 15:00:02 | 14:45:00 |
+| `C` (đóng cửa) | 17/11 14:45:01; 18/11 14:45:03 | 17/11 14:45:00 đến 14:45:01; 18/11 14:45:00 và 14:45:02 | 17/11 15:00:02; 18/11 15:00:06 | 14:45:00 đến 14:45:02 |
 
-  Tên cờ liên tục của HNX và UPCOM cũng là `LO` (xác nhận cho phiên chiều). HNX **không** có cờ `PLO`: sau `ATC` nó chuyển thẳng sang `C` lúc 14:45. UPCOM không có `ATC` và đóng lúc 15:00.
+  Tên cờ liên tục của cả ba sàn là `LO`. HNX **không** có `ATO` (vào thẳng `LO` lúc 09:00:00) và **không** có cờ `PLO`: sau `ATC` nó chuyển thẳng sang `C` lúc 14:45 (cả hai ngày). UPCOM không có `ATC` và đóng cửa lúc 15:00.
+- **[Xác nhận bằng thực nghiệm 2026-11-18]** Thông điệp cờ của UPCOM đến muộn hơn HOSE/HNX khoảng 1 giây tại các mốc đổi phiên (`BREAK` 11:30:01, `LO` 13:00:01) và `LO` buổi sáng lúc 09:00:05 (HNX 09:00:00). Hệ quả: quote đầu phiên chiều của UPCOM mang `t` = 13:00:00 nằm trước cờ `LO` 13:00:01 nên bị gán `BREAK` (18/11: 308 snapshot của 117 mã, tất cả có `t` đúng 13:00:00.000, nhận 2 đến 5 giây sau đó); HOSE/HNX có cờ `LO` đóng dấu 13:00:00 nên không gặp hiện tượng này.
 - **[Xác nhận bằng thực nghiệm 2026-11-17]** Danh sách mã theo sàn từ REST `securitiesByBoard`, chỉ giữ `stockType == "Stock"`: **HOSE 410, HNX 299, UPCOM 808** mã (`hose_all.txt`, `hnx_all.txt`, `upcom_all.txt`); không mã nào nằm ở hai sàn.
 - **[Xác nhận bằng thực nghiệm 2026-11-17] Lỗi của cột `book_snapshot.session_flag`:** collector gắn cờ của HOSE cho **mọi** mã nên cột này sai với mã HNX/UPCOM. Bằng chứng trên CSDL thu: 2060 snapshot mang cờ `C` (cờ đóng cửa của HOSE lúc 14:45:01) trong khi UPCOM vẫn giao dịch liên tục đến 15:00 (cờ hiệu lực của UPCOM lúc đó là `LO`). **Lớp phân tích bỏ qua cột này.**
 
-**[Kiểm tra] chưa quan sát (collector bắt đầu 09:55 nên không thấy cờ buổi sáng):**
-- Cờ `ATO` của HOSE (09:00) và cờ mở đầu phiên sáng của cả ba sàn; tên và giờ của cờ đó.
-- Mốc **09:00 của HNX và UPCOM**: chưa có cờ nào xác nhận phiên liên tục bắt đầu lúc 09:00 (đang dựa vào quy chế, qua lịch dự phòng bên dưới).
-- Cờ của HNX sau 14:45 ngoài `C` (quy chế có phiên `PLO` 14:45-15:00 nhưng dữ liệu hôm nay chuyển thẳng sang `C`).
+**[Kiểm tra] còn lại:**
+- Cờ của HNX sau 14:45 ngoài `C`: quy chế có phiên `PLO` 14:45-15:00 nhưng cả 17/11 và 18/11 dữ liệu chuyển thẳng sang `C`.
+- Cờ của DER không được dùng (phái sinh không nằm trong phạm vi).
 - Ngày nghỉ lễ và ngày có phiên đặc biệt.
+- Độ trễ cờ UPCOM (khoảng 1 giây ở 11:30 và 13:00, 5 giây lúc 09:00) mới quan sát 2 ngày; chưa biết có ổn định không.
 
 **Lớp phân tích (đã làm):**
 1. **Bảng `symbol_board(symbol, board)`**: `python scripts/load_symbol_board.py [--db PATH]` nạp từ `hose_all.txt`, `hnx_all.txt`, `upcom_all.txt` bằng `CREATE TABLE IF NOT EXISTS`; script chỉ ghi bảng này (không tạo hay sửa bảng khác), không bao giờ tạo CSDL mới, dừng và không ghi gì nếu một mã nằm ở hai sàn, chạy lại an toàn. Khi bảng rỗng hoặc chưa có, mọi mã được coi là HOSE như trước và báo cáo in cảnh báo.
